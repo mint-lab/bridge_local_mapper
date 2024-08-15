@@ -3,10 +3,10 @@ import open3d as o3d
 
 
 class RGBDDetectorOpen3D:
-    '''RGB-D obstacle detector using Open3D plane detection'''
+    """RGB-D obstacle detector using Open3D plane detection"""
 
     def __init__(self) -> None:
-        '''Initialize the detector'''
+        """Initialize the detector"""
         self.params = {
             'ransac_threshold'      : 0.05,
             'ransac_num_samples'    : 3,
@@ -14,14 +14,14 @@ class RGBDDetectorOpen3D:
             'filter_height_range'   : (-1, 0),
         }
 
-    @staticmethod
-    def detect_ground(pcd: o3d.geometry.PointCloud, opts: dict) -> tuple:
-        '''Detect the ground plane'''
-        ground_plane, inliers = pcd.segment_plane(distance_threshold=opts['ransac_threshold'], ransac_n=opts['ransac_num_samples'], num_iterations=opts['ransac_num_iters'])
-        return ground_plane, inliers
+    def detect_ground(self, pcd: o3d.geometry.PointCloud) -> tuple:
+        """Detect the ground plane"""
+        ground_plane, inlier_index = pcd.segment_plane(distance_threshold=self.params['ransac_threshold'],
+                                                       ransac_n=self.params['ransac_num_samples'], num_iterations=self.params['ransac_num_iters'])
+        return ground_plane, inlier_index
 
     def detect_obstacles(self, pcd: o3d.geometry.PointCloud) -> tuple:
-        '''Detect obstacles'''
+        """Detect obstacles"""
 
         # Detect obstacles on the ground plane
         ground_plane, ground_index = self.detect_ground(pcd, self.params)
@@ -39,14 +39,14 @@ class RGBDDetectorOpen3D:
 
     @staticmethod
     def paint_pointcloud(pcd: o3d.geometry.PointCloud, color: tuple, alpha: float=1) -> o3d.geometry.PointCloud:
-        '''Paint the point cloud with the given color and alpha value'''
+        """Paint the point cloud with the given color and alpha value"""
         pcd_colors = alpha * np.asarray(color) + (1-alpha) * np.asarray(pcd.colors)
         pcd.colors = o3d.utility.Vector3dVector(pcd_colors)
         return pcd
 
 
 def print_o3d_camera_position(o3d_viz):
-    '''Print the camera viewpoint of Open3D visualization GUI'''
+    """Print the camera viewpoint of Open3D visualization GUI"""
     Rt = o3d_viz.scene.camera.get_view_matrix()
     R, t = Rt[:3,:3], Rt[:3,-1]
     p = -R.T @ t

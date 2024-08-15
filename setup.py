@@ -13,13 +13,14 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='sunglok',
-    maintainer_email='sunglok@todo.todo',
+    maintainer='Sunglok Choi',
+    maintainer_email='sunglok@seoultech.ac.kr',
     description='TODO: Package description',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'local_mapper_node = bridge_planner.local_mapper_node:main',
         ],
     },
 )
