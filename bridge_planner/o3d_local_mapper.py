@@ -76,6 +76,12 @@ class O3DLocalMapper:
         row = int(y / self.map_cellsize + self.map_cy + 0.5) # Rouding (nearest neighbor)
         return row, col
 
+    def conv_xy2rc_array(self, xs, ys):
+        """Convert the local positions to the array indices"""
+        cols = (xs / self.map_cellsize + self.map_cx + 0.5).astype(np.int32) # Rouding (nearest neighbor)
+        rows = (ys / self.map_cellsize + self.map_cy + 0.5).astype(np.int32) # Rouding (nearest neighbor)
+        return rows, cols
+
     def apply_pointcloud(self, pcd: o3d.geometry.PointCloud) -> bool:
         """Apply the detector to the given point cloud"""
 
@@ -117,21 +123,21 @@ class O3DLocalMapper:
         range_mask = (valid_pts[:, -1] >= self.params['filter_height_range'][0]) & (valid_pts[:, -1] <= self.params['filter_height_range'][1])
         range_pts = valid_pts[range_mask, :]
         range_color = valid_color[range_mask, :]
-        range_rc = np.array([self.conv_xy2rc(*pt) for pt in range_pts])
-        map_mask = (range_rc[:, 0] >= 0) & (range_rc[:, 0] < self.map_ny) & (range_rc[:, 1] >= 0) & (range_rc[:, 1] < self.map_nx)
+        range_rows, range_cols = self.conv_xy2rc_array(range_pts[:, 0], range_pts[:, 1])
+        map_mask = (range_rows >= 0) & (range_rows < self.map_ny) & (range_cols >= 0) & (range_cols < self.map_nx)
 
         # Update the map data
         self.map_data['n_hits'].fill(0)
         ground_map_mask = ground_mask[range_mask] & map_mask
         if self.params['ground_mapping']:
-            for (r, c), pt, clr in zip(range_rc[ground_map_mask], range_pts[ground_map_mask, :], range_color[ground_map_mask, :]):
+            for r, c, pt, clr in zip(range_rows[ground_map_mask], range_cols[ground_map_mask], range_pts[ground_map_mask, :], range_color[ground_map_mask, :]):
                 self.map_data['n_hits'][r, c] += 1
                 self.map_data['elevation'][r, c] = min(pt[-1], self.map_data['elevation'][r, c])
                 self.map_data['ground_rgb'][r, c] = clr
 
         self.map_data['obstacle'].fill(0)
         object_map_mask = ~ground_mask[range_mask] & map_mask
-        for (r, c), pt in zip(range_rc[object_map_mask], range_pts[object_map_mask, :]):
+        for r, c, pt in zip(range_rows[object_map_mask], range_cols[object_map_mask], range_pts[object_map_mask, :]):
             self.map_data['n_hits'][r, c] += 1
             self.map_data['elevation'][r, c] = max(pt[-1], self.map_data['elevation'][r, c])
             self.map_data['obstacle'][r, c] = 1
@@ -225,6 +231,7 @@ def generate_pointcloud(added_params: dict={}, show_o3d=True):
 
 
 def test_pointcloud(mapper: O3DLocalMapper, pcd: o3d.geometry.PointCloud, added_params: dict={}, show_map=True, show_debug_info=True):
+    """Test the given local mapper with the given point cloud"""
     import time
 
     # Update the given parameters
@@ -268,13 +275,13 @@ def test_pointcloud(mapper: O3DLocalMapper, pcd: o3d.geometry.PointCloud, added_
 
 if __name__ == '__main__':
     # Read a point cloud from a file
-    # pcd_file = '../data/zed_17-01-03.ply'
-    # pcd_file = '../data/zed_17-21-38.ply'
-    # pcd_file = '../data/zed_17-21-38_336.ply'
-    # pcd_file = '../data/zed_17-21-38_460.ply'
-    pcd_file = '../data/zed_17-21-38_476.ply'
-    # pcd_file = '../data/zed_17-21-38_478.ply'
-    # pcd_file = '../data/zed_17-21-38_565.ply'
+    # pcd_file = '../data/HYU_Yang/zed_17-01-03.ply'
+    # pcd_file = '../data/HYU_Yang/zed_17-21-38.ply'
+    # pcd_file = '../data/HYU_Yang/zed_17-21-38_336.ply'
+    # pcd_file = '../data/HYU_Yang/zed_17-21-38_460.ply'
+    pcd_file = '../data/HYU_Yang/zed_17-21-38_476.ply'
+    # pcd_file = '../data/HYU_Yang/zed_17-21-38_478.ply'
+    # pcd_file = '../data/HYU_Yang/zed_17-21-38_565.ply'
     pcd = o3d.io.read_point_cloud(pcd_file)
 
     # Generate a point cloud synthetically
@@ -283,6 +290,6 @@ if __name__ == '__main__':
     # Test the local mapper
     mapper = O3DLocalMapper()
     mapper.params['pcd_sampling_step'] = 1
-    mapper.params['ground_mapping'] = True
+    mapper.params['ground_mapping'] = False
     mapper.params['debug_info'] = False
-    test_pointcloud(mapper, pcd, show_map=False, show_debug_info=mapper.params['debug_info'])
+    test_pointcloud(mapper, pcd, show_map=True, show_debug_info=mapper.params['debug_info'])
