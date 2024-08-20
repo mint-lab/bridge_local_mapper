@@ -1,10 +1,10 @@
 from setuptools import find_packages, setup
 
-package_name = 'bridge_planner'
+package_name = 'bridge_local_planner'
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='1.0.0',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -15,12 +15,12 @@ setup(
     zip_safe=True,
     maintainer='Sunglok Choi',
     maintainer_email='sunglok@seoultech.ac.kr',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='A collection of RGB-D local mappers and planners for NRF-Bridge project',
+    license='BSD-3-Clause',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'local_mapper_node = bridge_planner.local_mapper_node:main',
+            'local_mapper_node = bridge_local_planner.local_mapper_node:main',
         ],
     },
 )

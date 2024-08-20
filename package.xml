@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>bridge_planner</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <name>bridge_local_planner</name>
+  <version>1.0.0</version>
+  <description>A collection of RGB-D local mappers and planners for NRF-Bridge project</description>
   <maintainer email="sunglok@seoultech.ac.kr">Sunglok Choi</maintainer>
-  <license>TODO: License declaration</license>
+  <license>BSD-3-Clause</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
