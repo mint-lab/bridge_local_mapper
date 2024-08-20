@@ -8,8 +8,8 @@ class O3DLocalMapper:
 
     def __init__(self, map_x_width=10, map_y_width=10, map_cellsize=0.1) -> None:
         """Initialize the local mapper."""
-        self.map_nx = int(map_x_width // map_cellsize)
-        self.map_ny = int(map_y_width // map_cellsize)
+        self.map_nx = int(map_x_width / map_cellsize)
+        self.map_ny = int(map_y_width / map_cellsize)
         self.map_cx = self.map_nx // 2 - 1
         self.map_cy = self.map_ny // 2 - 1
         self.map_cellsize = map_cellsize
@@ -24,6 +24,7 @@ class O3DLocalMapper:
         self.params = {
             'robot2sensor_T'        : [[0, -1, 0, 0], [0, 0, -1, 0], [1, 0, 0, 0], [0, 0, 0, 1]],
             'pcd_sampling_step'     : 1,
+            'pcd_min_num_points'    : 1000,
             'ground_correct'        : True,
             'ground_mapping'        : True,
             'debug_info'            : True,
@@ -94,6 +95,8 @@ class O3DLocalMapper:
         else:
             sample_pcd.points = pcd.points
             sample_pcd.colors = pcd.colors
+        if len(sample_pcd.points) < self.params['pcd_min_num_points']:
+            return False
 
         # Filter the point cloud with the maximum depth.
         valid_mask = np.asarray(sample_pcd.points)[:, 2] < self.params['filter_max_depth']
@@ -185,7 +188,7 @@ class O3DLocalMapper:
         return pcd
 
 
-def generate_pointcloud(added_params: dict={}, show_o3d=True):
+def generate_pointcloud(added_params: dict={}, show_o3d=False):
     """Generate a point cloud with a ground plane and a cylinder object."""
     # Define the default parameters and update the given parameters.
     params = {
@@ -294,6 +297,6 @@ if __name__ == '__main__':
     # Test the local mapper.
     mapper = O3DLocalMapper()
     mapper.params['pcd_sampling_step'] = 1
-    mapper.params['ground_mapping'] = False
-    mapper.params['debug_info'] = False
+    mapper.params['ground_mapping'] = True
+    mapper.params['debug_info'] = True
     test_pointcloud(mapper, pcd, show_map=True, show_debug_info=mapper.params['debug_info'])
