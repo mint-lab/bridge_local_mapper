@@ -16,7 +16,7 @@ class O3DLocalMapper:
         self.map_data = {
             'n_hits'        : np.zeros((self.map_ny, self.map_nx),    dtype=np.uint32),
             'elevation'     : np.zeros((self.map_ny, self.map_nx),    dtype=np.float32),
-            'obstacle'      : np.zeros((self.map_ny, self.map_nx),    dtype=np.uint8),
+            'obstacle'      : np.zeros((self.map_ny, self.map_nx),    dtype=np.int8),
             'ground_rgb'    : np.zeros((self.map_ny, self.map_nx, 3), dtype=np.float32),
         }
 
@@ -135,12 +135,15 @@ class O3DLocalMapper:
         self.map_data['n_hits'].fill(0)
         ground_map_mask = ground_mask[range_mask] & map_mask
         if self.params['ground_mapping']:
+            self.map_data['obstacle'].fill(-1)
             for r, c, pt, clr in zip(range_rows[ground_map_mask], range_cols[ground_map_mask], range_pts[ground_map_mask, :], range_color[ground_map_mask, :]):
                 self.map_data['n_hits'][r, c] += 1
                 self.map_data['elevation'][r, c] = min(pt[-1], self.map_data['elevation'][r, c])
+                self.map_data['obstacle'][r, c] = 0
                 self.map_data['ground_rgb'][r, c] = clr
+        else:
+            self.map_data['obstacle'].fill(0)
 
-        self.map_data['obstacle'].fill(0)
         object_map_mask = ~ground_mask[range_mask] & map_mask
         for r, c, pt in zip(range_rows[object_map_mask], range_cols[object_map_mask], range_pts[object_map_mask, :]):
             self.map_data['n_hits'][r, c] += 1
@@ -174,8 +177,8 @@ class O3DLocalMapper:
         else:
             plt.imshow(data)
         plt.gca().invert_yaxis()
-        plt.xticks(np.linspace(0, self.map_nx-1, n_xticks), np.linspace(-self.map_nx//2, self.map_nx//2+1, n_xticks))
-        plt.yticks(np.linspace(0, self.map_ny-1, n_yticks), np.linspace(-self.map_ny//2, self.map_ny//2+1, n_yticks))
+        plt.xticks(np.linspace(0, self.map_nx-1, n_xticks), np.linspace(-self.map_nx//2, self.map_nx//2, n_xticks))
+        plt.yticks(np.linspace(0, self.map_ny-1, n_yticks), np.linspace(-self.map_ny//2, self.map_ny//2, n_yticks))
         plt.xlabel('X [m]')
         plt.ylabel('Y [m]')
         plt.colorbar()
@@ -282,13 +285,13 @@ def test_pointcloud(mapper: O3DLocalMapper, pcd: o3d.geometry.PointCloud, added_
 
 if __name__ == '__main__':
     # Read a point cloud from a file.
-    # pcd_file = '../data/HYU_Yang/zed_17-01-03.ply'
-    # pcd_file = '../data/HYU_Yang/zed_17-21-38.ply'
-    # pcd_file = '../data/HYU_Yang/zed_17-21-38_336.ply'
-    # pcd_file = '../data/HYU_Yang/zed_17-21-38_460.ply'
-    pcd_file = '../data/HYU_Yang/zed_17-21-38_476.ply'
-    # pcd_file = '../data/HYU_Yang/zed_17-21-38_478.ply'
-    # pcd_file = '../data/HYU_Yang/zed_17-21-38_565.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-01-03.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_336.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_460.ply'
+    pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_476.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_478.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_565.ply'
     pcd = o3d.io.read_point_cloud(pcd_file)
 
     # Generate a point cloud synthetically.
