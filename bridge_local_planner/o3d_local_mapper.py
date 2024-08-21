@@ -1,6 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import open3d as o3d
+import matplotlib.pyplot as plt
+import yaml
 
 
 class O3DLocalMapper:
@@ -27,12 +28,12 @@ class O3DLocalMapper:
             'pcd_min_num_points'    : 1000,
             'ground_correct'        : True,
             'ground_mapping'        : True,
-            'debug_info'            : True,
             'ransac_threshold'      : 0.05,     # Unit: [m]
             'ransac_num_samples'    : 3,
             'ransac_num_iters'      : 1000,
             'filter_max_depth'      : 10,       # Unit: [m]
             'filter_height_range'   : (-1, 1),  # Unit: [m]
+            'debug_info'            : True,
         }
         self.apply_params()
 
@@ -44,6 +45,21 @@ class O3DLocalMapper:
         """Set the parameters."""
         self.params.update(params)
         self.apply_params()
+
+    def load_params_from_yaml(self, yaml_file: str, filter: str=None):
+        """Load the parameters from a file."""
+        with open(yaml_file, 'r') as f:
+            params = yaml.safe_load(f)
+        if filter and filter in params:
+            self.set_params(params[filter])
+        else:
+            self.set_params(params)
+        self.apply_params()
+
+    def save_params_to_yaml(self, yaml_file: str):
+        """Save the parameters to a file."""
+        with open(yaml_file, 'w') as f:
+            yaml.dump(self.params, f)
 
     def detect_ground(self, pcd: o3d.geometry.PointCloud) -> tuple:
         """Detect the ground plane."""
@@ -299,7 +315,9 @@ if __name__ == '__main__':
 
     # Test the local mapper.
     mapper = O3DLocalMapper()
-    mapper.params['pcd_sampling_step'] = 1
+    # mapper.load_params_from_yaml('local_mapper_params.yaml')
+    mapper.params['pcd_sampling_step'] = 4
     mapper.params['ground_mapping'] = True
     mapper.params['debug_info'] = True
+    # mapper.save_params_to_yaml('local_mapper_params.yaml')
     test_pointcloud(mapper, pcd, show_map=True, show_debug_info=mapper.params['debug_info'])
