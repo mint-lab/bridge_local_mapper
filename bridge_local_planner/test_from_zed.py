@@ -11,11 +11,12 @@ def test_from_zed(mapper: O3DLocalMapper, svo_file: str='', added_params: dict={
 
     # Define default parameters and update them with the given parameters.
     zed_params = {
-        'svo_realtime'  : False,
-        'depth_mode'    : 'neural',
+        'svo_realtime'      : False,
+        'depth_mode'        : 'neural',
     }
     if 'zed_params' in added_params:
         zed_params.update(added_params['zed_params'])
+
     test_params = {
         'map_zoom'          : 2,
         'obstacles_alpha'   : 200,
@@ -47,8 +48,10 @@ def test_from_zed(mapper: O3DLocalMapper, svo_file: str='', added_params: dict={
             if print_time:
                 print(f'* Time elapse: {(time_grab-time_start)*1000:.0f} + {(time_mapping-time_grab)*1000:.0f} [msec] (success: {success})')
             if print_debug:
-                if 'valid_pcd' in mapper.debug_info:
-                    print(f'* The number of valid points: {len(mapper.debug_info["valid_pcd"].points)} / {len(pcd.points)}')
+                if 'valid_pts' in mapper.debug_info:
+                    print(f'* The number of valid points: {len(mapper.debug_info["valid_pts"])} / {len(pts)}')
+                if 'ground_plane' in mapper.debug_info:
+                    print(f'* Ground plane: {mapper.debug_info["ground_plane"]}')
 
             # Show the images.
             if show_image:
@@ -79,10 +82,12 @@ def test_from_zed(mapper: O3DLocalMapper, svo_file: str='', added_params: dict={
 
 if __name__ == '__main__':
     # svo_file = '../data/231031_HYU_Yang/HD720_SN30097042_17-01-03.svo'
-    svo_file = '../data/231031_HYU_Yang/HD720_SN30097042_17-21-38.svo'
+    # svo_file = '../data/231031_HYU_Yang/HD720_SN30097042_17-21-38.svo'
     # svo_file = '../data/231031_HYU_Yang/VGA_SN30097042_15-18-02.svo'
     # svo_file = '../data/231031_HYU_Yang/VGA_SN30097042_15-19-51.svo'
     # svo_file = '../data/231031_HYU_Yang/VGA_SN30097042_15-21-15.svo'
+    svo_file = '../data/240819_HYU_Corridor/VGA_SN37875346_14-52-46.svo2'
+    # svo_file = '../data/240819_HYU_Corridor/VGA_SN37875346_14-56-22.svo2'
     # svo_file = '' # Use a ZED camera directly.
 
     # Test the local mapper.
