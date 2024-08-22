@@ -11,7 +11,7 @@ from grid_map_msgs.msg import GridMap
 try:
     from o3d_mapper import O3DMapper
 except ImportError:
-    from bridge_planner.o3d_mapper import O3DMapper, generate_pointcloud
+    from bridge_local_planner.o3d_mapper import O3DMapper
 
 
 class LocalMapperNode(Node):
