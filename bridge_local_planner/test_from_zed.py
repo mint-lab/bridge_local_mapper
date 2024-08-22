@@ -1,8 +1,7 @@
 import time
 import numpy as np
 import cv2 as cv
-import open3d as o3d
-from o3d_mapper import O3DMapper
+from gtrack_mapper import GTrackMapper
 from sensorpy.zed import ZED, print_zed_info
 
 
@@ -43,14 +42,17 @@ def test_from_zed(mapper: O3DMapper, svo_file: str='', added_params: dict={}, pr
             time_grab = time.time()
 
             # Apply the point cloud to the mapper.
-            success = mapper.apply_pts(pts)
+            success = mapper.apply_pointcloud(pts)
             time_mapping = time.time()
             if print_time:
                 print(f'* Time elapse: {(time_grab-time_start)*1000:.0f} + {(time_mapping-time_grab)*1000:.0f} [msec] (success: {success})')
             if print_debug:
-                if 'valid_pts' in mapper.debug_info:
-                    print(f'* The number of valid points: {len(mapper.debug_info["valid_pts"])} / {len(pts)}')
-                if 'ground_plane' in mapper.debug_info:
+                if 'valid_pts' in mapper.debug_info and 'ground_plane' in mapper.debug_info and 'ground_index' in mapper.debug_info:
+                    all_num = len(pts)
+                    valid_num = len(mapper.debug_info['valid_pts'])
+                    ground_num = len(mapper.debug_info['ground_index'])
+                    print(f'* The number of valid  points: {valid_num} / {all_num} ({valid_num/all_num*100:.0f}%)')
+                    print(f'* The number of ground points: {ground_num} / {valid_num} ({ground_num/valid_num*100:.0f}%)')
                     print(f'* Ground plane: {mapper.debug_info["ground_plane"]}')
 
             # Show the images.
@@ -91,8 +93,10 @@ if __name__ == '__main__':
     # svo_file = '' # Use a ZED camera directly.
 
     # Test the local mapper.
-    mapper = O3DMapper()
-    mapper.params['pts_sampling_step'] = 4
-    mapper.params['ground_mapping'] = True
-    mapper.params['debug_info'] = False
+    mapper = GTrackMapper()
+    mapper.set_params({
+        'pts_sampling_step' : 2,
+        'ground_mapping'    : True,
+        'debug_info'        : False
+    })
     test_from_zed(mapper, svo_file, print_info=False, print_debug=mapper.params['debug_info'])
