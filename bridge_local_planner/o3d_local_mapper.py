@@ -33,7 +33,7 @@ class O3DLocalMapper:
             'ransac_num_iters'      : 1000,
             'filter_max_depth'      : 10,       # Unit: [m]
             'filter_height_range'   : (-1, 1),  # Unit: [m]
-            'debug_info'            : True,
+            'debug_info'            : False,
         }
         self.apply_params()
 
@@ -273,7 +273,7 @@ def test_pointcloud(mapper: O3DLocalMapper, pcd: o3d.geometry.PointCloud, added_
     time_elapse = time.time() - time_start
     print(f'* Time elapse: {time_elapse * 1000} [msec]')
 
-    # Visualize the local map data.
+    # Show the local map data.
     if show_map:
         mapper.imshow_map_data(mapper.map_data['elevation'],  'Elavation Map')
         mapper.imshow_map_data(mapper.map_data['n_hits'],     'The Number of Hits')
@@ -281,7 +281,7 @@ def test_pointcloud(mapper: O3DLocalMapper, pcd: o3d.geometry.PointCloud, added_
         mapper.imshow_map_data(mapper.map_data['ground_rgb'], 'Ground RGB Map')
         plt.show()
 
-    # Visualize point clouds in the debug information.
+    # Show point clouds in the debug information.
     if show_debug_info:
         if 'valid_pcd' in mapper.debug_info and 'object_pcd' in mapper.debug_info and 'ground_pcd' in mapper.debug_info:
             print(f'* The number of valid points: {len(mapper.debug_info["valid_pcd"].points)} / {len(pcd.points)}')
