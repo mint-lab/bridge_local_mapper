@@ -1,4 +1,5 @@
 import numpy as np
+import cv2 as cv
 import open3d as o3d
 import matplotlib.pyplot as plt
 import yaml
@@ -15,23 +16,22 @@ class O3DLocalMapper:
         self.map_cy = self.map_ny // 2 - 1
         self.map_cellsize = map_cellsize
         self.map_data = {
-            'n_hits'        : np.zeros((self.map_ny, self.map_nx),    dtype=np.uint32),
-            'elevation'     : np.zeros((self.map_ny, self.map_nx),    dtype=np.float32),
-            'obstacle'      : np.zeros((self.map_ny, self.map_nx),    dtype=np.int8),
-            'ground_rgb'    : np.zeros((self.map_ny, self.map_nx, 3), dtype=np.float32),
+            'obstacles' : np.zeros((self.map_ny, self.map_nx), dtype=np.int8),
+            'elevation' : np.zeros((self.map_ny, self.map_nx), dtype=np.float32),
+            'histogram' : np.zeros((self.map_ny, self.map_nx), dtype=np.uint32),
         }
 
         self.debug_info = {}
         self.params = {
             'robot2sensor_T'        : [[0, -1, 0, 0], [0, 0, -1, 0], [1, 0, 0, 0], [0, 0, 0, 1]],
-            'pcd_sampling_step'     : 1,
-            'pcd_min_num_points'    : 1000,
-            'ground_correct'        : True,
-            'ground_mapping'        : True,
+            'pts_sampling_step'     : 1,
+            'pts_max_depth'         : 10,       # Unit: [m]
+            'pts_min_pts'           : 1000,
             'ransac_threshold'      : 0.05,     # Unit: [m]
             'ransac_num_samples'    : 3,
             'ransac_num_iters'      : 1000,
-            'filter_max_depth'      : 10,       # Unit: [m]
+            'ground_correct'        : True,
+            'ground_mapping'        : True,
             'filter_height_range'   : (-1, 1),  # Unit: [m]
             'debug_info'            : False,
         }
@@ -61,8 +61,9 @@ class O3DLocalMapper:
         with open(yaml_file, 'w') as f:
             yaml.dump(self.params, f)
 
-    def detect_ground(self, pcd: o3d.geometry.PointCloud) -> tuple:
+    def detect_ground(self, pts: np.array) -> tuple:
         """Detect the ground plane."""
+        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pts))
         ground_plane, inlier_index = pcd.segment_plane(distance_threshold=self.params['ransac_threshold'],
                                                        ransac_n=self.params['ransac_num_samples'], num_iterations=self.params['ransac_num_iters'])
         return ground_plane, inlier_index
@@ -99,33 +100,32 @@ class O3DLocalMapper:
         rows = (ys / self.map_cellsize + self.map_cy + 0.5).astype(np.int32) # Rouding (nearest neighbor)
         return rows, cols
 
-    def apply_pointcloud(self, pcd: o3d.geometry.PointCloud) -> bool:
-        """Apply the detector to the given point cloud."""
+    def apply_o3d_pcd(self, pcd: o3d.geometry.PointCloud) -> bool:
+        """Apply the given Open3D point cloud."""
+        return self.apply_pts(np.asarray(pcd.points))
+
+    def apply_pts(self, pts: np.array) -> bool:
+        """Apply the given point cloud."""
 
         # Sample the point cloud.
-        sample_pcd = o3d.geometry.PointCloud()
-        if self.params['pcd_sampling_step'] > 1:
-            # Sample points every `pcd_sampling_step`
-            sample_index = range(0, len(pcd.points), self.params['pcd_sampling_step'])
-            sample_pcd = pcd.select_by_index(sample_index)
+        if self.params['pts_sampling_step'] > 1:
+            # Sample points every `pts_sampling_step`
+            sample_index = range(0, len(pts), self.params['pts_sampling_step'])
+            sample_pts = pts[sample_index, :]
         else:
-            sample_pcd.points = pcd.points
-            sample_pcd.colors = pcd.colors
-        if len(sample_pcd.points) < self.params['pcd_min_num_points']:
-            return False
+            sample_pts = pts
 
         # Filter the point cloud with the maximum depth.
-        valid_mask = np.asarray(sample_pcd.points)[:, 2] < self.params['filter_max_depth']
-        valid_pts = np.asarray(sample_pcd.points)[valid_mask, :]
-        valid_color = np.asarray(sample_pcd.colors)[valid_mask, :]
+        valid_mask = sample_pts[:, 2] < self.params['pts_max_depth']
+        valid_pts = sample_pts[valid_mask, :]
+        if len(valid_pts) < self.params['pts_min_pts']:
+            return False
 
         # Compensate the sensor pose.
         valid_pts = valid_pts @ self.sensor2robot_T[:3, :3].T + self.sensor2robot_T[:3, -1]
-        valid_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(valid_pts))
-        valid_pcd.colors = o3d.utility.Vector3dVector(valid_color)
 
         # Detect the ground plane.
-        ground_plane, ground_index = self.detect_ground(valid_pcd)
+        ground_plane, ground_index = self.detect_ground(valid_pts)
         if ground_plane is None:
             return False
         if ground_plane[2] < 0:
@@ -138,52 +138,42 @@ class O3DLocalMapper:
         if self.params['ground_correct']:
             ground_T = self.get_ground_transform(ground_plane)
             valid_pts = valid_pts @ ground_T[:3, :3].T + ground_T[:3, -1]
-            valid_pcd.points = o3d.utility.Vector3dVector(valid_pts)
 
         # Filter the point cloud with the height range and map range.
         range_mask = (valid_pts[:, -1] >= self.params['filter_height_range'][0]) & (valid_pts[:, -1] <= self.params['filter_height_range'][1])
         range_pts = valid_pts[range_mask, :]
-        range_color = valid_color[range_mask, :]
         range_rows, range_cols = self.conv_xy2rc_array(range_pts[:, 0], range_pts[:, 1])
-        map_mask = (range_rows >= 0) & (range_rows < self.map_ny) & (range_cols >= 0) & (range_cols < self.map_nx)
 
         # Update the map data.
-        self.map_data['n_hits'].fill(0)
+        self.map_data['histogram'].fill(0)
+        map_mask = (range_rows >= 0) & (range_rows < self.map_ny) & (range_cols >= 0) & (range_cols < self.map_nx)
         ground_map_mask = ground_mask[range_mask] & map_mask
         if self.params['ground_mapping']:
-            self.map_data['obstacle'].fill(-1)
-            for r, c, pt, clr in zip(range_rows[ground_map_mask], range_cols[ground_map_mask], range_pts[ground_map_mask, :], range_color[ground_map_mask, :]):
-                self.map_data['n_hits'][r, c] += 1
+            self.map_data['obstacles'].fill(-1)
+            for r, c, pt in zip(range_rows[ground_map_mask], range_cols[ground_map_mask], range_pts[ground_map_mask, :]):
+                self.map_data['obstacles'][r, c] = 0
                 self.map_data['elevation'][r, c] = min(pt[-1], self.map_data['elevation'][r, c])
-                self.map_data['obstacle'][r, c] = 0
-                self.map_data['ground_rgb'][r, c] = clr
+                self.map_data['histogram'][r, c] += 1
         else:
-            self.map_data['obstacle'].fill(0)
+            self.map_data['obstacles'].fill(0)
 
         object_map_mask = ~ground_mask[range_mask] & map_mask
         for r, c, pt in zip(range_rows[object_map_mask], range_cols[object_map_mask], range_pts[object_map_mask, :]):
-            self.map_data['n_hits'][r, c] += 1
+            self.map_data['obstacles'][r, c] = 1
             self.map_data['elevation'][r, c] = max(pt[-1], self.map_data['elevation'][r, c])
-            self.map_data['obstacle'][r, c] = 1
+            self.map_data['histogram'][r, c] += 1
 
         # Keep the debug information if necessary.
         if self.params['debug_info']:
-            self.debug_info['valid_pcd'] = valid_pcd
+            self.debug_info['valid_pts'] = valid_pts
             self.debug_info['ground_plane'] = ground_plane
             self.debug_info['ground_index'] = ground_index
-            range_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(range_pts))
-            range_pcd.colors = o3d.utility.Vector3dVector(range_color)
-            self.debug_info['range_pcd'] = range_pcd
-            ground_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(range_pts[ground_map_mask, :]))
-            ground_pcd.colors = o3d.utility.Vector3dVector(range_color[ground_map_mask, :])
-            self.debug_info['ground_pcd'] = ground_pcd
-            object_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(range_pts[object_map_mask, :]))
-            object_pcd.colors = o3d.utility.Vector3dVector(range_color[object_map_mask, :])
-            self.debug_info['object_pcd'] = object_pcd
+            self.debug_info['ground_pts'] = range_pts[ground_map_mask, :]
+            self.debug_info['object_pts'] = range_pts[object_map_mask, :]
 
         return True
 
-    def imshow_map_data(self, data, title=None, cmap='jet', n_xticks=5, n_yticks=5):
+    def imshow_plt_map(self, data, title=None, cmap='jet', n_xticks=5, n_yticks=5):
         """Plot the map data using Matplotlib PyPlot."""
         plt.figure()
         if title:
@@ -200,8 +190,16 @@ class O3DLocalMapper:
         plt.colorbar()
 
     @staticmethod
-    def paint_pointcloud(pcd: o3d.geometry.PointCloud, color: tuple, alpha: float=1) -> o3d.geometry.PointCloud:
-        """Paint the point cloud with the given color and alpha value."""
+    def convert_cv_map(map, alpha=1, beta=0, cvt_gray2bgr=True):
+        """Rescale the map for OpenCV."""
+        img = (alpha * map + beta).clip(0, 255).astype(np.uint8)
+        if cvt_gray2bgr:
+            img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+        return img
+
+    @staticmethod
+    def paint_o3d_pcd(pcd: o3d.geometry.PointCloud, color: tuple, alpha: float=1) -> o3d.geometry.PointCloud:
+        """Paint the Open3D point cloud with the given color and alpha value."""
         pcd_colors = alpha * np.asarray(color) + (1-alpha) * np.asarray(pcd.colors)
         pcd.colors = o3d.utility.Vector3dVector(pcd_colors)
         return pcd
@@ -269,27 +267,27 @@ def test_pointcloud(mapper: O3DLocalMapper, pcd: o3d.geometry.PointCloud, added_
 
     # Apply the given point cloud (build the local map).
     time_start = time.time()
-    mapper.apply_pointcloud(pcd)
+    success = mapper.apply_o3d_pcd(pcd)
     time_elapse = time.time() - time_start
-    print(f'* Time elapse: {time_elapse * 1000} [msec]')
+    print(f'* Time elapse: {time_elapse * 1000} [msec] (success: {success})')
 
     # Show the local map data.
     if show_map:
-        mapper.imshow_map_data(mapper.map_data['elevation'],  'Elavation Map')
-        mapper.imshow_map_data(mapper.map_data['n_hits'],     'The Number of Hits')
-        mapper.imshow_map_data(mapper.map_data['obstacle'],   'Obstacle Map')
-        mapper.imshow_map_data(mapper.map_data['ground_rgb'], 'Ground RGB Map')
+        mapper.imshow_plt_map(mapper.map_data['obstacles'],  'Obstacles')
+        mapper.imshow_plt_map(mapper.map_data['elevation'],  'Elavation')
+        mapper.imshow_plt_map(mapper.map_data['histogram'],  'Histogram')
         plt.show()
 
     # Show point clouds in the debug information.
     if show_debug_info:
-        if 'valid_pcd' in mapper.debug_info and 'object_pcd' in mapper.debug_info and 'ground_pcd' in mapper.debug_info:
-            print(f'* The number of valid points: {len(mapper.debug_info["valid_pcd"].points)} / {len(pcd.points)}')
-            valid_pcd = mapper.debug_info['valid_pcd']
-            object_pcd = mapper.debug_info['object_pcd']
-            ground_pcd = mapper.debug_info['ground_pcd']
-            mapper.paint_pointcloud(object_pcd, params['viz_color_object'], params['viz_color_alpha'])
-            mapper.paint_pointcloud(ground_pcd, params['viz_color_ground'], params['viz_color_alpha'])
+        if 'valid_pts' in mapper.debug_info and 'object_pts' in mapper.debug_info and 'ground_pts' in mapper.debug_info:
+            print(f'* The number of valid points: {len(mapper.debug_info["valid_pts"])} / {len(pcd.points)}')
+            valid_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(mapper.debug_info['valid_pts']))
+            valid_pcd.paint_uniform_color([0.5, 0.5, 0.5])
+            object_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(mapper.debug_info['object_pts']))
+            object_pcd.paint_uniform_color(params['viz_color_object'])
+            ground_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(mapper.debug_info['ground_pts']))
+            ground_pcd.paint_uniform_color(params['viz_color_ground'])
 
             geometries = [{'name': 'input',    'geometry': pcd,         'is_visible': False},
                           {'name': 'valid',    'geometry': valid_pcd,   'is_visible': False},
@@ -316,8 +314,8 @@ if __name__ == '__main__':
     # Test the local mapper.
     mapper = O3DLocalMapper()
     # mapper.load_params_from_yaml('local_mapper_params.yaml')
-    mapper.params['pcd_sampling_step'] = 4
+    mapper.params['pts_sampling_step'] = 4
     mapper.params['ground_mapping'] = True
-    mapper.params['debug_info'] = True
+    mapper.params['debug_info'] = False
     # mapper.save_params_to_yaml('local_mapper_params.yaml')
     test_pointcloud(mapper, pcd, show_map=True, show_debug_info=mapper.params['debug_info'])
