@@ -9,9 +9,9 @@ from sensor_msgs.msg import PointCloud2
 from grid_map_msgs.msg import GridMap
 
 try:
-    from o3d_local_mapper import O3DLocalMapper
+    from o3d_mapper import O3DMapper
 except ImportError:
-    from bridge_planner.o3d_local_mapper import O3DLocalMapper, generate_pointcloud
+    from bridge_planner.o3d_mapper import O3DMapper, generate_pointcloud
 
 
 class LocalMapperNode(Node):
@@ -31,7 +31,7 @@ class LocalMapperNode(Node):
         self.map_cellsize = float(self.get_parameter('map_cellsize').value)
 
         # Initialize the local mapper.
-        self.local_mapper = O3DLocalMapper(map_x_width=self.map_x_width, map_y_width=self.map_y_width, map_cellsize=self.map_cellsize)
+        self.local_mapper = O3DMapper(map_x_width=self.map_x_width, map_y_width=self.map_y_width, map_cellsize=self.map_cellsize)
         self.local_mapper.set_params({'robot2sensor_T': np.eye(4)})
         self.local_mapper.set_params({'ground_correct': False})
         self.local_mapper.set_params({'ground_mapping': True})

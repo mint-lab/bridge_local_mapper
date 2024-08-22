@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import yaml
 
 
-class O3DLocalMapper:
+class O3DMapper:
     """RGB-D obstacle detector using Open3D plane detection"""
 
     def __init__(self, map_x_width=10, map_y_width=10, map_cellsize=0.1) -> None:
@@ -254,7 +254,7 @@ def generate_pointcloud(added_params: dict={}, show_o3d=False):
     return all_pcd
 
 
-def test_pointcloud(mapper: O3DLocalMapper, pcd: o3d.geometry.PointCloud, added_params: dict={}, show_map=True, show_debug_info=True):
+def test_pointcloud(mapper: O3DMapper, pcd: o3d.geometry.PointCloud, added_params: dict={}, show_map=True, show_debug_info=True):
     """Test the given local mapper with the given point cloud."""
     import time
 
@@ -313,7 +313,7 @@ if __name__ == '__main__':
     # pcd = generate_pointcloud(show_o3d=False)
 
     # Test the local mapper.
-    mapper = O3DLocalMapper()
+    mapper = O3DMapper()
     # mapper.load_params_from_yaml('local_mapper_params.yaml')
     mapper.params['pts_sampling_step'] = 4
     mapper.params['ground_mapping'] = True
