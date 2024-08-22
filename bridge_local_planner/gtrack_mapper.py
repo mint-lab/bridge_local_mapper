@@ -26,9 +26,13 @@ class GTrackMapper:
             'pts_sampling_step'     : 1,
             'pts_max_depth'         : 10,       # Unit: [m]
             'pts_min_pts'           : 1000,
-            'ransac_threshold'      : 0.05,     # Unit: [m]
-            'ransac_num_samples'    : 3,
             'ransac_num_iters'      : 1000,
+            'ransac_num_samples'    : 3,
+            'ransac_threshold'      : 0.05,     # Unit: [m]
+            'ransac_confidence'     : 0.99,
+            'plane_norm_threshold'  : 1e-6,
+            'plane_z_threshold'     : 0.5,
+            'plane_max_height'      : 1.5,      # Unit: [m]
             'ground_correct'        : True,
             'ground_mapping'        : True,
             'filter_height_range'   : (-1, 1),  # Unit: [m]
@@ -62,10 +66,41 @@ class GTrackMapper:
 
     def detect_ground(self, pts: np.array) -> tuple:
         """Detect the ground plane."""
-        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pts))
-        ground_plane, inlier_index = pcd.segment_plane(distance_threshold=self.params['ransac_threshold'],
-                                                       ransac_n=self.params['ransac_num_samples'], num_iterations=self.params['ransac_num_iters'])
-        return ground_plane, inlier_index
+        best_plane, best_mask, best_score = None, None, 0
+        ransac_num_iters = self.params['ransac_num_iters']
+        iter = 0
+        while iter < ransac_num_iters:
+            # Generate a random plane
+            iter += 1
+            sample_index = np.random.choice(len(pts), self.params['ransac_num_samples'], replace=False)
+            sample_pts = pts[sample_index, :]
+            plane = np.cross(sample_pts[1] - sample_pts[0], sample_pts[2] - sample_pts[0])
+            if np.linalg.norm(plane) < self.params['plane_norm_threshold']:
+                continue
+            plane /= np.linalg.norm(plane)
+            if -self.params['plane_z_threshold'] < plane[2] < self.params['plane_z_threshold']:
+                continue
+            if plane[2] < 0:
+                plane = -plane
+            plane = np.hstack((plane, -plane.dot(sample_pts[0])))
+            if plane[3] > self.params['plane_max_height'] or plane[3] < -self.params['plane_max_height']:
+                continue
+
+            # Evaluate the plane
+            dist = pts @ plane[:3] + plane[-1]
+            mask = np.abs(dist) < self.params['ransac_threshold']
+            score = np.sum(mask)
+            if score > best_score:
+                best_plane = plane
+                best_mask = mask
+                best_score = score
+                inlier_ratio = score / len(pts)
+                new_num_iters = np.log(1 - self.params['ransac_confidence']) / np.log(1 - inlier_ratio ** self.params['ransac_num_samples'])
+                ransac_num_iters = min(new_num_iters, self.params['ransac_num_iters'])
+
+        if self.params['debug_info']:
+            self.debug_info['ransac_num_iters'] = ransac_num_iters
+        return best_plane, best_mask
 
     @staticmethod
     def get_ground_transform(ground_plane: np.ndarray) -> np.ndarray:
@@ -120,14 +155,9 @@ class GTrackMapper:
         valid_pts = valid_pts @ self.sensor2robot_T[:3, :3].T + self.sensor2robot_T[:3, -1]
 
         # Detect the ground plane.
-        ground_plane, ground_index = self.detect_ground(valid_pts)
+        ground_plane, ground_mask = self.detect_ground(valid_pts)
         if ground_plane is None:
             return False
-        if ground_plane[2] < 0:
-            # Make the normal vector is pointing upwards
-            ground_plane = -ground_plane
-        ground_mask = np.zeros(len(valid_pts), dtype=bool)
-        ground_mask[ground_index] = True
 
         # Compensate the ground plane to make it as the XY reference plane.
         if self.params['ground_correct']:
@@ -163,7 +193,7 @@ class GTrackMapper:
         if self.params['debug_info']:
             self.debug_info['valid_pts'] = valid_pts
             self.debug_info['ground_plane'] = ground_plane
-            self.debug_info['ground_index'] = ground_index
+            self.debug_info['ground_mask'] = ground_mask
             self.debug_info['ground_pts'] = range_pts[ground_map_mask, :]
             self.debug_info['object_pts'] = range_pts[object_map_mask, :]
 
@@ -244,6 +274,18 @@ def generate_pointcloud(added_params: dict={}, show_o3d=False):
     return all_pts
 
 
+def print_debug_info(debug_info: dict, num_all_pts: int):
+    if 'valid_pts' in mapper.debug_info and 'ground_mask' in mapper.debug_info:
+        num_valid_pts = len(mapper.debug_info['valid_pts'])
+        num_ground_pts = sum(mapper.debug_info['ground_mask'])
+        print(f'* The number of valid  points: {num_valid_pts} / {num_all_pts} ({num_valid_pts/num_all_pts*100:.0f}%)')
+        print(f'* The number of ground points: {num_ground_pts} / {num_valid_pts} ({num_ground_pts/num_valid_pts*100:.0f}%)')
+    if 'ground_plane' in mapper.debug_info:
+        print(f'* Ground plane: {mapper.debug_info["ground_plane"]}')
+    if 'ransac_num_iters' in mapper.debug_info:
+        print(f'* The number of RANSAC iterations: {mapper.debug_info["ransac_num_iters"]}')
+
+
 def test_pointcloud(mapper: GTrackMapper, pts: np.array, added_params: dict={}, show_map=True, show_debug_info=True):
     """Test the given local mapper with the given point cloud."""
     import time
@@ -263,20 +305,14 @@ def test_pointcloud(mapper: GTrackMapper, pts: np.array, added_params: dict={}, 
 
     # Show the local map data.
     if show_map:
-        mapper.imshow_map_pyplot(mapper.map_data['obstacles'],  'Obstacles')
-        mapper.imshow_map_pyplot(mapper.map_data['elevation'],  'Elavation')
-        mapper.imshow_map_pyplot(mapper.map_data['histogram'],  'Histogram')
+        mapper.imshow_map_pyplot(mapper.map_data['obstacles'], 'Obstacles')
+        mapper.imshow_map_pyplot(mapper.map_data['elevation'], 'Elavation')
+        mapper.imshow_map_pyplot(mapper.map_data['histogram'], 'Histogram')
         plt.show()
 
     # Show the debug information.
     if show_debug_info:
-        if 'valid_pts' in mapper.debug_info and 'ground_plane' in mapper.debug_info and 'ground_index' in mapper.debug_info:
-            all_num = len(pts)
-            valid_num = len(mapper.debug_info['valid_pts'])
-            ground_num = len(mapper.debug_info['ground_index'])
-            print(f'* The number of valid  points: {valid_num} / {all_num} ({valid_num/all_num*100:.0f}%)')
-            print(f'* The number of ground points: {ground_num} / {valid_num} ({ground_num/valid_num*100:.0f}%)')
-            print(f'* Ground plane: {mapper.debug_info["ground_plane"]}')
+        print_debug_info(mapper.debug_info, len(pts))
 
         if 'valid_pts' in mapper.debug_info and 'object_pts' in mapper.debug_info and 'ground_pts' in mapper.debug_info:
             import open3d as o3d
@@ -314,6 +350,6 @@ if __name__ == '__main__':
     mapper.set_params({
         'pts_sampling_step' : 4,
         'ground_mapping'    : True,
-        'debug_info'        : False
+        'debug_info'        : False,
     })
     test_pointcloud(mapper, pts, show_map=True, show_debug_info=mapper.params['debug_info'])
