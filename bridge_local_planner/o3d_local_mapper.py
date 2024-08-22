@@ -145,6 +145,7 @@ class O3DLocalMapper:
         range_rows, range_cols = self.conv_xy2rc_array(range_pts[:, 0], range_pts[:, 1])
 
         # Update the map data.
+        self.map_data['elevation'].fill(0)
         self.map_data['histogram'].fill(0)
         map_mask = (range_rows >= 0) & (range_rows < self.map_ny) & (range_cols >= 0) & (range_cols < self.map_nx)
         ground_map_mask = ground_mask[range_mask] & map_mask
