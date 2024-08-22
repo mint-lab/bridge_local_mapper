@@ -6,7 +6,7 @@ _bridge_local_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성 (
 
 ### 1. 주요 기술 소개
 * **지역 지도 작성 (Local Mapping)**
-  * `o3d_rgb_mapper.py`
+  * `o3d_mapper.py`
     * Open3D의 plane detection을 이용해 지면 검출 및 장애물 분리, 지역 지도 작성
 * **ROS 2 인터페이스 (ROS 2 Nodes)**
   * `local_mapper_node.py`
@@ -21,7 +21,7 @@ _bridge_local_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성 (
 
 ### 3. 사용 방법
 #### 3.1. Pure Python 환경에서 동작
-* 기본 local mapping 예제: `o3d_rgb_mapper.py` 파일의 `test_point_cloud()` 함수
+* 기본 local mapping 예제: `o3d_mapper.py` 파일의 `test_point_cloud()` 함수
 * ZED 카메라 또는 SVO 파일을 이용한 데모: `test_from_zed.py`
 
 

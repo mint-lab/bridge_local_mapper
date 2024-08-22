@@ -2,11 +2,11 @@ import time
 import numpy as np
 import cv2 as cv
 import open3d as o3d
-from o3d_local_mapper import O3DLocalMapper
+from o3d_mapper import O3DMapper
 from sensorpy.zed import ZED, print_zed_info
 
 
-def test_from_zed(mapper: O3DLocalMapper, svo_file: str='', added_params: dict={}, print_info=True, print_time=True, print_debug=False, show_image=True, show_map=True):
+def test_from_zed(mapper: O3DMapper, svo_file: str='', added_params: dict={}, print_info=True, print_time=True, print_debug=False, show_image=True, show_map=True):
     """Test the given local mapper with a ZED camera or a SVO file."""
 
     # Define default parameters and update them with the given parameters.
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     # svo_file = '' # Use a ZED camera directly.
 
     # Test the local mapper.
-    mapper = O3DLocalMapper()
+    mapper = O3DMapper()
     mapper.params['pts_sampling_step'] = 4
     mapper.params['ground_mapping'] = True
     mapper.params['debug_info'] = False
