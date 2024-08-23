@@ -1,21 +1,18 @@
 ## bridge_local_planner
 
-_bridge_local_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성 (local mapping)** 및 **지역 경로 생성 (local path planning; LPP)**을 위한 소프트웨어이다.
+_bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성 (local mapping)** 및 **지역 경로 생성 (local path planning; LPP)**을 위한 소프트웨어이다.
 
 
 
 ### 1. 주요 기술 소개
-* **Local Mappers**
+* **Local mapping**
   * `gtrack_mapper.py`
     * 지면(ground plane)의 제약조건(constraints)과 추적(tracking)을 이용한 지면 검출과 장애물 분리를 이용한 local mapping 알고리즘
   * `o3d_mapper.py`
     * 지면 검출에 Open3D의 RANSAC 기반 plane detection을 이용한 local mapping 알고리즘
-* **Local Path Planners**
-* **ROS 2 Nodes**
-  * `local_mapper_node.py`
-    * ROS 2의 기본 메세지를 통한 local mapping 노드
-    * Subscribers: `local_mapper_node/point_cloud`
-    * Publishers: `local_mapper_node/local_map`
+
+* **Local path planning**
+  * `straight_planner.py`
 
 
 
@@ -25,9 +22,8 @@ _bridge_local_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성 (
 
 
 ### 3. 사용 방법
-#### 3.1. Pure Python 환경에서 동작
-* Local mappers 기본 예제
-
+#### 3.1. Pure Python 환경
+* **Local mapper 기본 예제**
   ```python
   from gtrack_mapper import GTrackMapper, generate_pointcloud
   
@@ -43,14 +39,33 @@ _bridge_local_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성 (
   print(mapper.map_data)
   ```
 
-* ZED 카메라 또는 SVO 파일을 이용한 데모: `test_from_zed.py`
+* **ZED 카메라 또는 SVO 파일을 이용한 데모**
+  [test_from_zed.py](https://github.com/mint-lab/bridge_local_planner/blob/master/bridge_local_planner/test_from_zed.py) 참고
 
 
 
-#### 3.2. ROS 2 환경에서 동작
-* Local mapper 노드 실행: `ros2 run bridge_planner local_mapper_node [--ros-args --remap /local_mapper_node/point_cloud:=/your/published/point_cloud/topic]`
-  * `--remap` 옵션:  노드에 입력할 point cloud 토픽 설정
-    * 예: `--remap /local_mapper_node/point_cloud:=/zed2i/zed_node/point_cloud/cloud_registered`
+#### 3.2. ROS 2 노드
+  * `local_mapper_node.py`
+    * ROS 2의 기본 메세지를 이용한 local mapper wrapper
+    * Subscribed topics
+      * Point cloud: `local_mapper_node/point_cloud` (type: `sensor_msgs/PointCloud2`, unit: [m]) 
+    * Publishing topics
+      * Obstacles map: `local_mapper_node/obstacles_map` (type: `nav_msgs/OccupancyGrid`)
+        * Values: -1 (unknown), 0 (empty), 1-100 (occupancy probability)
+      * Elevation map: `local_mapper_node/elevation_map` (type: `nav_msgs/OccupancyGrid`)
+        * Value range: [-128, 127]
+        * Unit: [cm]
+      * Histogram map: `local_mapper_node/histogram_map` (type: `nav_msgs/OccupancyGrid`)
+        * Value range: [0, 127]
+
+
+
+#### 3.3. ROS 2 환경
+* **Local mapper 노드 실행**
+  * `ros2 run bridge_planner local_mapper_node [--ros-args --remap /local_mapper_node/point_cloud:=/your/published/point_cloud/topic]`
+    * `--remap` 옵션:  노드에 입력할 point cloud 토픽 설정
+      * 예: `--remap /local_mapper_node/point_cloud:=/zed2i/zed_node/point_cloud/cloud_registered`
+  * rviz2에서 지도 가시화 가능
 
 
 

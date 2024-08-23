@@ -1,8 +1,9 @@
 import time
 import numpy as np
 import cv2 as cv
-from gtrack_mapper import GTrackMapper, print_debug_info
 from sensorpy.zed import ZED, print_zed_info
+from gtrack_mapper import GTrackMapper, print_debug_info
+from o3d_mapper import O3DMapper
 
 
 def test_from_zed(mapper: GTrackMapper, svo_file: str='', added_params: dict={}, print_info=True, print_time=True, print_debug=False, show_image=True, show_map=True):
@@ -45,7 +46,7 @@ def test_from_zed(mapper: GTrackMapper, svo_file: str='', added_params: dict={},
             success = mapper.apply_pointcloud(pts)
             time_mapping = time.time()
             if print_time:
-                print(f'* Time elapse: {(time_grab-time_start)*1000:.0f} + {(time_mapping-time_grab)*1000:.0f} [msec] (success: {success})')
+                print(f'* Computing time: {(time_grab-time_start)*1000:.0f} + {(time_mapping-time_grab)*1000:.0f} [msec] (success: {success})')
             if print_debug:
                 print_debug_info(mapper.debug_info, len(pts))
 
