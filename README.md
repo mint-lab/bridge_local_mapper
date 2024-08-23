@@ -34,11 +34,16 @@ _bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성
   # Prepare a point cloud
   pts = generate_pointcloud()
   
-  # Apply the point cloud and access the updated map data
+  # Apply the point cloud
   success = mapper.apply_pointcloud(pts)
-  print(mapper.map_data)
+  
+  # Access the updated map data
+  r, c = mapper.conv_rc2xy(3, 2) # (3, 2) [m]
+  is_free = mapper.map_data['obstacles'][r, c] == 0
+  elevation = mapper.map_data['elevation'][r, c]
+  histogram = mapper.map_data['elevation'][r, c]
   ```
-
+  
 * **ZED 카메라 또는 SVO 파일을 이용한 데모**
   [test_from_zed.py](https://github.com/mint-lab/bridge_local_planner/blob/master/bridge_local_planner/test_from_zed.py) 참고
 
