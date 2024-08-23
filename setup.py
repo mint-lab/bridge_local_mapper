@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='Sunglok Choi',
     maintainer_email='sunglok@seoultech.ac.kr',
-    description='A collection of RGB-D local mappers and planners for NRF-Bridge project',
+    description='A collection of local mappers and planners for NRF-Bridge project',
     license='BSD-3-Clause',
     tests_require=['pytest'],
     entry_points={

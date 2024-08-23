@@ -1,17 +1,20 @@
+# Python packages
 import numpy as np
-import open3d as o3d
 
+# ROS 2 packages
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float32MultiArray, MultiArrayDimension
 import sensor_msgs_py.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2
-from grid_map_msgs.msg import GridMap
+from nav_msgs.msg import OccupancyGrid
 
+# Local packages
 try:
-    from o3d_mapper import O3DMapper
+    from gtrack_mapper import GTrackMapper
+    # from o3d_mapper import O3DMapper
 except ImportError:
-    from bridge_local_planner.o3d_mapper import O3DMapper
+    from bridge_local_planner.gtrack_mapper import GTrackMapper
+    # from bridge_local_planner.o3d_mapper import O3DMapper
 
 
 class LocalMapperNode(Node):
@@ -22,84 +25,90 @@ class LocalMapperNode(Node):
         super().__init__('local_mapper_node')
 
         # Load parameters.
-        self.declare_parameter('map_x_width', 10)
-        self.declare_parameter('map_y_width', 10)
+        self.declare_parameter('map_x_length', 10)
+        self.declare_parameter('map_y_length', 10)
         self.declare_parameter('map_cellsize', 0.1)
+        self.declare_parameter('elevation_alpha', 100)
+        self.declare_parameter('config_file', '')
 
-        self.map_x_width = float(self.get_parameter('map_x_width').value)
-        self.map_y_width = float(self.get_parameter('map_y_width').value)
+        self.map_x_length = float(self.get_parameter('map_x_length').value)
+        self.map_y_length = float(self.get_parameter('map_y_length').value)
         self.map_cellsize = float(self.get_parameter('map_cellsize').value)
+        self.elevation_alpha = float(self.get_parameter('elevation_alpha').value)
 
         # Initialize the local mapper.
-        self.local_mapper = O3DMapper(map_x_width=self.map_x_width, map_y_width=self.map_y_width, map_cellsize=self.map_cellsize)
-        self.local_mapper.set_params({'robot2sensor_T': np.eye(4)})
-        self.local_mapper.set_params({'ground_correct': False})
-        self.local_mapper.set_params({'ground_mapping': True})
-        self.local_mapper.set_params({'pcd_sampling_step': 4})
+        self.mapper = GTrackMapper(self.map_x_length, self.map_y_length, self.map_cellsize)
+        self.mapper.set_params({
+            'robot2sensor_T'    : np.eye(4),
+            'pts_sampling_step' : 4,
+            'ground_correct'    : True,
+            'ground_mapping'    : True,
+        })
+        config_file = self.get_parameter('config_file').value
+        if config_file:
+            self.mapper.load_config(config_file)
+
+        # Initialize the local (occupancy grid) maps.
+        self.map_msg = {}
+        self.map_array = {}
+        for layer in self.mapper.map_data:
+            map = OccupancyGrid()
+            map.info.width = self.mapper.map_nx
+            map.info.height = self.mapper.map_ny
+            map.info.resolution = self.mapper.map_cellsize
+            map.info.origin.position.x = -self.map_x_length / 2
+            map.info.origin.position.y = -self.map_y_length / 2
+            self.map_msg[layer] = map
+            self.map_array[layer] = None
 
         # Initialize subscribers and publishers.
-        self.pcd_subscriber = self.create_subscription(PointCloud2, '/local_mapper_node/point_cloud', self.callback_pointcloud2, 2)
-        self.map_publisher = self.create_publisher(GridMap, '/local_mapper_node/local_map', 2)
+        self.pcd_subscriber = self.create_subscription(PointCloud2, '/local_mapper_node/point_cloud', self.subscribe_pointcloud2, 2)
+        self.map_publishers = {}
+        for layer in self.mapper.map_data:
+            self.map_publishers[layer] = self.create_publisher(OccupancyGrid, f'/local_mapper_node/{layer}_map', 2)
 
         self.get_logger().info('[local_mapper_node] Started.')
 
     @staticmethod
-    def conv_pointcloud2_to_o3dpcd(cloud_msg):
-        """Convert ROS PointCloud2 message to Open3D PointCloud."""
-        field_names = [field.name for field in cloud_msg.fields]
-        points = pc2.read_points(cloud_msg, field_names=field_names, skip_nans=True)
-        xyz = np.vstack((points['x'], points['y'], points['z'])).T
-        #rgb = ...
+    def conv_pointcloud2_to_array(pcd_msg):
+        """Convert ROS PointCloud2 message to NumPy array."""
+        field_names = [field.name for field in pcd_msg.fields]
+        points = pc2.read_points(pcd_msg, field_names=field_names, skip_nans=True)
+        pts = np.vstack((points['x'], points['y'], points['z'])).T
+        return pts
 
-        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(xyz))
-        pcd.paint_uniform_color([0.5, 0.5, 0.5])
-        return pcd
+    def subscribe_pointcloud2(self, msg):
+        """Subscribe a PointCloud2 messages (callback function)."""
+        pts = self.conv_pointcloud2_to_array(msg)
 
-    @staticmethod
-    def conv_nparray_to_multiarray(np_array):
-        """Convert a NumPy array to Float32MultiArray."""
-        multi_array = Float32MultiArray()
-        if np_array.ndim == 2:
-            rows, cols = np_array.shape
-            multi_array.layout.dim.append(MultiArrayDimension(label='dim1', size=cols, stride=1))
-            multi_array.layout.dim.append(MultiArrayDimension(label='dim0', size=rows, stride=cols))
-            multi_array.layout.data_offset = 0
-            multi_array.data = np_array.flatten().tolist()
-        return multi_array
-
-    def callback_pointcloud2(self, msg):
-        """Callback function for PointCloud2 messages."""
-        pcd = self.conv_pointcloud2_to_o3dpcd(msg)
-        # pcd = generate_pointcloud()
+        # Apply the point cloud to the local mapper.
         start_time = self.get_clock().now()
-        success = self.local_mapper.apply_pointcloud(pcd)
+        success = self.mapper.apply_pointcloud(pts)
         elapsed_time = self.get_clock().now() - start_time
         self.get_logger().info(f'[local_mapper_node] Computing time: {elapsed_time.nanoseconds / 1e6} [msec]')
         if not success:
-            self.get_logger().warn('[local_mapper_node] Failed to apply point cloud.')
+            self.get_logger().warn('[local_mapper_node] Failed to apply the point cloud.')
 
-        self.publish_map(msg.header.stamp)
+        # Publish the local maps.
+        self.publish_occupancy_maps(msg.header.stamp)
 
-    def publish_map(self, timestamp):
-        map = GridMap()
-        map.info.resolution = self.map_cellsize
-        map.info.length_x = self.map_x_width
-        map.info.length_y = self.map_y_width
+    def publish_occupancy_maps(self, timestamp):
+        # Update the map messages.
+        self.map_array['obstacles'] = self.mapper.map_data['obstacles']
+        self.map_array['elevation'] = (self.mapper.map_data['elevation'] * self.elevation_alpha).clip(-128, 127).astype(np.int8)
+        self.map_array['histogram'] = self.mapper.map_data['histogram'].clip(0, 127).astype(np.int8)
 
-        map.layers.append('elevation')
-        map.data.append(self.conv_nparray_to_multiarray(self.local_mapper.map_data['elevation']))
-        # map.layers.append('n_hits')
-        # map.data.append(self.conv_nparray_to_multiarray(self.local_mapper.map_data['n_hits']))
-        # map.layers.append('obstacle')
-        # map.data.append(self.conv_nparray_to_multiarray(self.local_mapper.map_data['obstacle']))
-
-        map.header.frame_id = 'map' # 'local_map'
-        map.header.stamp = timestamp
-        self.map_publisher.publish(map)
+        # Publish the map messages.
+        for layer in self.map_msg:
+            map = self.map_msg[layer]
+            map.header.frame_id = 'map' # TODO: 'local_map'
+            map.header.stamp = timestamp
+            map.data = self.map_array[layer].flatten().tolist()
+            self.map_publishers[layer].publish(map)
 
 
 def main(args=None):
-    """Start the local_mapper_node"""
+    """Start the local mapper node."""
     rclpy.init(args=args)
     node = LocalMapperNode()
 

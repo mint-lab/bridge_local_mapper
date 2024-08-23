@@ -5,12 +5,12 @@ import yaml
 
 
 class GTrackMapper:
-    """RGB-D local mapper using ground constraints and tracking"""
+    """RGB-D Local Mapper using Ground Constraints and Tracking"""
 
-    def __init__(self, map_x_width=10, map_y_width=10, map_cellsize=0.1) -> None:
+    def __init__(self, map_x_length=10, map_y_length=10, map_cellsize=0.1) -> None:
         """Initialize the local mapper."""
-        self.map_nx = int(map_x_width / map_cellsize)
-        self.map_ny = int(map_y_width / map_cellsize)
+        self.map_nx = int(map_x_length / map_cellsize)
+        self.map_ny = int(map_y_length / map_cellsize)
         self.map_cx = self.map_nx // 2 - 1
         self.map_cy = self.map_ny // 2 - 1
         self.map_cellsize = map_cellsize
@@ -185,7 +185,7 @@ class GTrackMapper:
 
         object_map_mask = ~ground_mask[range_mask] & map_mask
         for r, c, pt in zip(range_rows[object_map_mask], range_cols[object_map_mask], range_pts[object_map_mask, :]):
-            self.map_data['obstacles'][r, c] = 1
+            self.map_data['obstacles'][r, c] = 100
             self.map_data['elevation'][r, c] = max(pt[-1], self.map_data['elevation'][r, c])
             self.map_data['histogram'][r, c] += 1
 
@@ -301,7 +301,7 @@ def test_pointcloud(mapper: GTrackMapper, pts: np.array, added_params: dict={}, 
     time_start = time.time()
     success = mapper.apply_pointcloud(pts)
     time_elapse = time.time() - time_start
-    print(f'* Time elapse: {time_elapse * 1000} [msec] (success: {success})')
+    print(f'* Computing time: {time_elapse * 1000} [msec] (success: {success})')
 
     # Show the local map data.
     if show_map:
