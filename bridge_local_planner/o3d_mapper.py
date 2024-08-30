@@ -12,7 +12,7 @@ except ImportError:
 class O3DMapper(GTrackMapper):
     """RGB-D Local Mappper using Open3D Plane Detection"""
 
-    def __init__(self, map_x_length=10, map_y_length=10, map_cellsize=0.1) -> None:
+    def __init__(self, map_x_length=10., map_y_length=10., map_cellsize=0.1) -> None:
         """Initialize the local mapper."""
         super().__init__(map_x_length, map_y_length, map_cellsize)
         self.params['ransac_num_iters'] = 1000

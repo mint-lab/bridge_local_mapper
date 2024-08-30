@@ -6,9 +6,11 @@ _bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성
 
 ### 1. 주요 기술 소개
 * **Local mapping**
-  * `gtrack_mapper.py`
+  * `gtrack_mapper.py`: Local mapper with ground plane constraints and tracking (**추천**)
     * 지면(ground plane)의 제약조건(constraints)과 추적(tracking)을 이용한 지면 검출과 장애물 분리를 이용한 local mapping 알고리즘
-  * `o3d_mapper.py`
+  * `gconst_mapper.py`: Local mapper with ground plane constraints
+    * 지면(ground plane)의 제약조건(constraints)만 이용한 local mapping 알고리즘
+  * `o3d_mapper.py`: Local mapper with Open3D plane detection
     * 지면 검출에 Open3D의 RANSAC 기반 plane detection을 이용한 local mapping 알고리즘
 
 * **Local path planning**
@@ -24,6 +26,7 @@ _bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성
 ### 3. 사용 방법
 #### 3.1. Pure Python 환경
 * **Local mapper 기본 예제**
+
   ```python
   from gtrack_mapper import GTrackMapper, generate_pointcloud
   
@@ -38,20 +41,22 @@ _bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성
   success = mapper.apply_pointcloud(pts)
   
   # Access the updated map data
-  r, c = mapper.conv_rc2xy(3, 2) # (3, 2) [m]
-  is_free = mapper.map_data['obstacles'][r, c] == 0
+  r, c = mapper.conv_xy2rc(3, 2) # meter to index
+  is_object = mapper.map_data['obstacles'][r, c] == 0
   elevation = mapper.map_data['elevation'][r, c]
-  histogram = mapper.map_data['elevation'][r, c]
+  histogram = mapper.map_data['histogram'][r, c]
   ```
   
-* **ZED 카메라 또는 SVO 파일을 이용한 데모**
-  [test_from_zed.py](https://github.com/mint-lab/bridge_local_planner/blob/master/bridge_local_planner/test_from_zed.py) 참고
+* **PLY point cloud 파일을 이용한 local mapper 데모**
+  [bridge_local_planner/gtrack_mapper.py](https://github.com/mint-lab/bridge_local_planner/blob/master/bridge_local_planner/test_from_zed.py)의 `test_pointcloud()` 함수 참고
+
+* **ZED 카메라 또는 SVO 동영상 파일을 이용한 local mapper 데모**
+  [bridge_local_planner/test_from_zed.py](https://github.com/mint-lab/bridge_local_planner/blob/master/bridge_local_planner/test_from_zed.py)의 `test_from_zed()` 함수 참고
 
 
 
 #### 3.2. ROS 2 노드
-  * `local_mapper_node.py`
-    * ROS 2의 기본 메세지를 이용한 local mapper wrapper
+  * `local_mapper_node.py`: ROS 2의 기본 메세지를 이용한 local mapper의 ROS 2 node
     * Subscribed topics
       * Point cloud: `local_mapper_node/point_cloud` (type: `sensor_msgs/PointCloud2`, unit: [m]) 
     * Publishing topics
