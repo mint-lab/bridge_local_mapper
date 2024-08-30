@@ -6,6 +6,19 @@ from gtrack_mapper import GTrackMapper, print_debug_info
 from o3d_mapper import O3DMapper
 
 
+def mouse_callback(event, x, y, flags, params):
+    if event == cv.EVENT_LBUTTONDBLCLK:
+        # Print the map data at the clicked point.
+        r = params['mapper'].map_ny - int((y / params['map_zoom']) % params['mapper'].map_ny + 0.5)
+        c = int((x / params['map_zoom']) % params['mapper'].map_nx + 0.5)
+        x, y = params['mapper'].conv_rc2xy(r, c)
+        print(f'* Index (row, col): [{r}, {c}] / Location (x, y): [{x:.3f}, {y:.3f}] [m]')
+        if 0 <= r < params['mapper'].map_ny and 0 <= c < params['mapper'].map_nx:
+            print(f'  * Obstacles: {params["mapper"].map_data["obstacles"][r, c]:.0f}')
+            print(f'  * Elevation: {params["mapper"].map_data["elevation"][r, c]:.3f} [m]')
+            print(f'  * Histogram: {params["mapper"].map_data["histogram"][r, c]:.0f}')
+
+
 def test_from_zed(mapper: GTrackMapper, svo_file: str='', added_params: dict={}, print_info=True, print_time=True, print_debug=False, show_image=True, show_map=True):
     """Test the given local mapper with a ZED camera or a SVO file."""
 
@@ -28,6 +41,11 @@ def test_from_zed(mapper: GTrackMapper, svo_file: str='', added_params: dict={},
         'image_zoom'        : 0.5,
     }
     test_params.update(added_params)
+
+    # Create an window and set its mouse callback.
+    cv.namedWindow('test_from_zed: Obstacles + Elevation + Histogram Maps', cv.WINDOW_NORMAL)
+    mouse_param = { 'mapper': mapper, 'map_zoom': test_params['map_zoom'] }
+    cv.setMouseCallback('test_from_zed: Obstacles + Elevation + Histogram Maps', mouse_callback, param=mouse_param)
 
     # Open a ZED camera or a SVO file.
     zed = ZED()
@@ -94,19 +112,13 @@ if __name__ == '__main__':
         'pts_sampling_step' : 4,
         'ransac_threshold'  : 0.1,
         'ground_mapping'    : True,
-        'debug_info'        : True,
+        'debug_info'        : False,
     })
-    test_param = {
+    test_params = {
         'zed_params'        : {
             'svo_realtime'  : True,
         },
         'map_zoom'          : 2,
-        'obstacles_alpha'   : 200,
-        'obstacles_beta'    : 0,
-        'elevation_alpha'   : 100,
-        'elevation_beta'    : 100,
-        'histogram_alpha'   : 1,
-        'histogram_beta'    : 0,
         'image_zoom'        : 0.5,
     }
-    test_from_zed(mapper, svo_file, test_param, print_info=False, print_debug=mapper.params['debug_info'])
+    test_from_zed(mapper, svo_file, test_params, print_info=False, print_debug=mapper.params['debug_info'])
