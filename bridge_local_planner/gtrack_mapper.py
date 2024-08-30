@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.spatial.transform import Rotation
 import cv2 as cv
 import matplotlib.pyplot as plt
 import yaml
@@ -7,7 +8,7 @@ import yaml
 class GTrackMapper:
     """RGB-D Local Mapper using Ground Constraints and Tracking"""
 
-    def __init__(self, map_x_length=10, map_y_length=10, map_cellsize=0.1) -> None:
+    def __init__(self, map_x_length=10., map_y_length=10., map_cellsize=0.1) -> None:
         """Initialize the local mapper."""
         self.map_nx = int(map_x_length / map_cellsize)
         self.map_ny = int(map_y_length / map_cellsize)
@@ -105,16 +106,19 @@ class GTrackMapper:
     @staticmethod
     def get_ground_transform(ground_plane: np.ndarray) -> np.ndarray:
         """Get the transformation matrix of the ground plane to make the XY reference plane."""
-        ground_normal = ground_plane[:3]
-        ground_origin = np.array([0, 0, -ground_plane[-1] / np.linalg.norm(ground_normal)])
-        ground_z = ground_normal
-        ground_x = np.array([1, 0, 0])
-        ground_y = np.cross(ground_z, ground_x)
-        ground_R = np.vstack((ground_x, ground_y, ground_z)).T
+        normal_vector = ground_plane[:3]
+        z_axis = np.array([0, 0, 1])
+        rotation_axis = np.cross(normal_vector, z_axis)
+        abs_sin_theta = np.linalg.norm(rotation_axis)
+        if abs_sin_theta < 1e-6:
+            R = np.eye(3)
+        else:
+            abs_theta = np.arcsin(np.clip(abs_sin_theta, -1.0, 1.0))
+            R = Rotation.from_rotvec(rotation_axis / abs_sin_theta * abs_theta).as_matrix()
         ground_T = np.eye(4)
-        ground_T[:3, :3] = ground_R
-        ground_T[:3, -1] = ground_origin
-        return np.linalg.inv(ground_T)
+        ground_T[:3, :3] = R
+        ground_T[:3, -1] = R @ (ground_plane[-1] * normal_vector)
+        return ground_T
 
     def conv_rc2xy(self, row, col):
         """Convert the array index (row and column) to the local position (x and y)."""
@@ -229,22 +233,24 @@ def generate_pointcloud(added_params: dict={}, show_o3d=False):
     import open3d as o3d
 
     # Define default parameters and update the given parameters.
+    # Note) The ground coordinate system is same with the robot coordinate system.
     params = {
-        'ground_x_range'    : (0, 5, 0.1),
-        'ground_y_range'    : (-5, 5, 0.1),
-        'cyliner_radius'    : 0.5,
-        'cyliner_height'    : 2.0,
-        'cyliner_position'  : [3, 2, 1],
+        'plane_x_range'     : (0, 5, 0.1),  # [m]
+        'plane_y_range'     : (-5, 5, 0.1), # [m]
+        'cyliner_radius'    : 0.5,          # [m]
+        'cyliner_height'    : 2.0,          # [m]
+        'cyliner_position'  : [3, 2, 0],    # [m]
         'cyliner_n_pts'     : 1000,
-        'robot2sensor_T'    : np.array([[0, -1,  0, 0],
-                                        [0,  0, -1, 1],
-                                        [1,  0,  0, 0],
-                                        [0,  0,  0, 1]]),
+        'ground_tilt_angle' : 0,            # [deg] (0: horizontal, -30: uphill 30 degrees)
+        'ground2sensor_T'   : np.array([[ 0,  0, 1, 0],
+                                        [-1,  0, 0, 0],
+                                        [ 0, -1, 0, 1],
+                                        [ 0,  0, 0, 1]]),
     }
     params.update(added_params)
 
-    # Generate the ground plane.
-    ground_x, ground_y = np.meshgrid(np.arange(*params['ground_x_range']), np.arange(*params['ground_y_range']))
+    # Generate a plane.
+    ground_x, ground_y = np.meshgrid(np.arange(*params['plane_x_range']), np.arange(*params['plane_y_range']))
     ground_z = np.zeros_like(ground_x)
     ground_pts = np.vstack((ground_x.flatten(), ground_y.flatten(), ground_z.flatten())).T
     ground_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(ground_pts))
@@ -253,12 +259,19 @@ def generate_pointcloud(added_params: dict={}, show_o3d=False):
     # Generate an cylinderical object.
     object_mesh = o3d.geometry.TriangleMesh.create_cylinder(radius=params['cyliner_radius'], height=params['cyliner_height'])
     object_mesh.paint_uniform_color([1, 0, 0])
-    object_mesh.translate(params['cyliner_position'])
+    object_mesh.translate(params['cyliner_position'] + np.array([0, 0, params['cyliner_height']/2]))
     object_pcd = object_mesh.sample_points_uniformly(number_of_points=params['cyliner_n_pts'])
 
-    # Apply the senosr pose.
+    # Apply the ground rotation.
     all_pcd = ground_pcd + object_pcd
-    all_pts = np.asarray(all_pcd.points) @ params['robot2sensor_T'][:3, :3].T + params['robot2sensor_T'][:3, -1]
+    all_pts = np.asarray(all_pcd.points)
+    rot_angle = np.deg2rad([0, params['ground_tilt_angle'], 0])
+    R = o3d.geometry.get_rotation_matrix_from_zyx(rot_angle)
+    all_pts = all_pts @ R.T # Same with `(all_pts.T = R @ all_pts.T).T`
+
+    # Observe points in the senosr coordinate system.
+    Rt = np.linalg.inv(params['ground2sensor_T'])
+    all_pts = all_pts @ Rt[:3, :3].T + Rt[:3, -1]
     all_pcd.points = o3d.utility.Vector3dVector(all_pts)
 
     # Visualize the point clouds if necessary.
@@ -275,15 +288,15 @@ def generate_pointcloud(added_params: dict={}, show_o3d=False):
 
 
 def print_debug_info(debug_info: dict, num_all_pts: int):
-    if 'valid_pts' in mapper.debug_info and 'ground_mask' in mapper.debug_info:
-        num_valid_pts = len(mapper.debug_info['valid_pts'])
-        num_ground_pts = sum(mapper.debug_info['ground_mask'])
+    if 'valid_pts' in debug_info and 'ground_mask' in debug_info:
+        num_valid_pts = len(debug_info['valid_pts'])
+        num_ground_pts = sum(debug_info['ground_mask'])
         print(f'* The number of valid  points: {num_valid_pts} / {num_all_pts} ({num_valid_pts/num_all_pts*100:.0f}%)')
         print(f'* The number of ground points: {num_ground_pts} / {num_valid_pts} ({num_ground_pts/num_valid_pts*100:.0f}%)')
-    if 'ground_plane' in mapper.debug_info:
-        print(f'* Ground plane: {mapper.debug_info["ground_plane"]}')
-    if 'ransac_num_iters' in mapper.debug_info:
-        print(f'* The number of RANSAC iterations: {mapper.debug_info["ransac_num_iters"]}')
+    if 'ground_plane' in debug_info:
+        print(f'* Ground plane: {debug_info["ground_plane"]}')
+    if 'ransac_num_iters' in debug_info:
+        print(f'* The number of RANSAC iterations: {debug_info["ransac_num_iters"]}')
 
 
 def test_pointcloud(mapper: GTrackMapper, pts: np.array, added_params: dict={}, show_map=True, show_debug_info=True):
@@ -343,7 +356,14 @@ if __name__ == '__main__':
     pts = np.asarray(pcd.points)
 
     # Generate a point cloud synthetically.
-    # pts = generate_pointcloud(show_o3d=False)
+    # pts_params = {
+    #     'cyliner_height'   : 0.5, # [m]
+    #     'ground_tilt_angle': -10, # [deg]
+    #     'ground2sensor_T'  : np.array([[ 0,  0, 1, -1],
+    #                                    [-1,  0, 0,  0],
+    #                                    [ 0, -1, 0,  1],
+    #                                    [ 0,  0, 0,  1]])}
+    # pts = generate_pointcloud(pts_params, show_o3d=False)
 
     # Test the local mapper.
     mapper = GTrackMapper()
