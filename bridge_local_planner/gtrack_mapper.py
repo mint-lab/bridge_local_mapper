@@ -31,6 +31,7 @@ class GTrackMapper:
             'ransac_num_samples'    : 3,
             'ransac_threshold'      : 0.05,     # Unit: [m]
             'ransac_confidence'     : 0.99,
+            'ransac_refinement'     : True,
             'plane_norm_threshold'  : 1e-6,
             'plane_z_threshold'     : 0.5,
             'plane_max_height'      : 1.5,      # Unit: [m]
@@ -99,9 +100,25 @@ class GTrackMapper:
                 new_num_iters = np.log(1 - self.params['ransac_confidence']) / np.log(1 - inlier_ratio ** self.params['ransac_num_samples'])
                 ransac_num_iters = min(new_num_iters, self.params['ransac_num_iters'])
 
+        if self.params['ransac_refinement']:
+            # Refine the plane using all inliers
+            best_plane = self.find_plane(pts[best_mask, :])
+            if best_plane[2] < 0:
+                best_plane = -best_plane
+
         if self.params['debug_info']:
             self.debug_info['ransac_num_iters'] = ransac_num_iters
         return best_plane, best_mask
+
+    @staticmethod
+    def find_plane(pts: np.array) -> np.array:
+        """Find the plane using the least squares method."""
+        mean = pts.mean(axis=0)
+        pts_centered = pts - mean
+        _, _, Vh = np.linalg.svd(pts_centered, full_matrices=False)
+        normal_vector = Vh[-1, :]
+        d = -normal_vector.dot(mean)
+        return np.hstack((normal_vector, d))
 
     @staticmethod
     def get_ground_transform(ground_plane: np.ndarray) -> np.ndarray:

@@ -12,6 +12,7 @@ _bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성
     * 지면의 제약조건만 이용한 local mapping 알고리즘
     * Ground plane constraints을 위한 매개변수
       * `ransac_confidence`: RANSAC의 빠른 종료 검사를 위한 신뢰도 값 (기본값: 0.99)
+      * `ransac_refinement`: RANSAC 후에 inlier 점들을 이용한 plane fitting 재수행 여부 (기본값: True)
       * `plane_norm_threshold`: Plane fitting의 cross product의 크기 (plane fitting의 stability) (기본값: 1e-6)
       * `plane_z_threshold`: Plane fitting 결과의 법선 벡터의 Z축 값 (기본값: 0.5)
       * `plane_max_height`: Plane fitting 결과와 로봇좌표계 사이의 최대 직선거리 (기본값: 1.5, 단위: [m]) 
