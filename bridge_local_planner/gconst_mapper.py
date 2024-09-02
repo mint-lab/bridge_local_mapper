@@ -20,6 +20,7 @@ class GConstMapper(GTrackMapper):
         self.params['ransac_num_samples'] = 3
         self.params['ransac_threshold'] = 0.05 # Unit: [m]
         self.params['ransac_confidence'] = 0.99
+        self.params['ransac_refinement'] = True
         self.params['plane_norm_threshold'] = 1e-6
         self.params['plane_z_threshold'] = 0.5
         self.params['plane_max_height'] = 1.5 # Unit: [m]
@@ -57,6 +58,12 @@ class GConstMapper(GTrackMapper):
                 inlier_ratio = score / len(pts)
                 new_num_iters = np.log(1 - self.params['ransac_confidence']) / np.log(1 - inlier_ratio ** self.params['ransac_num_samples'])
                 ransac_num_iters = min(new_num_iters, self.params['ransac_num_iters'])
+
+        if self.params['ransac_refinement']:
+            # Refine the plane using all inliers
+            best_plane = self.find_plane(pts[best_mask, :])
+            if best_plane[2] < 0:
+                best_plane = -best_plane
 
         if self.params['debug_info']:
             self.debug_info['ransac_num_iters'] = ransac_num_iters
