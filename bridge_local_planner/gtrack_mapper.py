@@ -6,7 +6,7 @@ import yaml
 
 
 class GTrackMapper:
-    """RGB-D Local Mapper using Ground Constraints and Tracking"""
+    """Local mapper with ground plane constraints, asymmetric MSAC, and plane tracking"""
 
     def __init__(self, map_x_length=10., map_y_length=10., map_cellsize=0.1) -> None:
         """Initialize the local mapper."""

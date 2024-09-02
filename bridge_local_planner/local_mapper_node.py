@@ -18,7 +18,7 @@ except ImportError:
 
 
 class LocalMapperNode(Node):
-    """Local Mapper Wrapper (ROS 2 Node)"""
+    """Local mapper wrapper (ROS 2 node)"""
 
     def __init__(self):
         """Initialize the local mapper node."""
