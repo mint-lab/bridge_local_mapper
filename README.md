@@ -6,13 +6,22 @@ _bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성
 
 ### 1. 주요 기술 소개
 * **Local mapping**
-  * `gtrack_mapper.py`: Local mapper with ground plane constraints and tracking (**추천**)
-    * 지면(ground plane)의 제약조건(constraints)과 추적(tracking)을 이용한 지면 검출과 장애물 분리를 이용한 local mapping 알고리즘
+  * `gtrack_mapper.py`: Local mapper with ground plane constraints, asymmetric MSAC, and plane tracking (**추천**)
+    * 지면의 제약조건과 비대칭 MSAC, 그리고 평면 추적을 모두 이용한 지면 검출과 장애물 분리를 이용한 local mapping 알고리즘
   * `gconst_mapper.py`: Local mapper with ground plane constraints
-    * 지면(ground plane)의 제약조건(constraints)만 이용한 local mapping 알고리즘
-  * `o3d_mapper.py`: Local mapper with Open3D plane detection
+    * 지면의 제약조건만 이용한 local mapping 알고리즘
+    * Ground plane constraints을 위한 매개변수
+      * `ransac_confidence`: RANSAC의 빠른 종료 검사를 위한 신뢰도 값 (기본값: 0.99)
+      * `plane_norm_threshold`: Plane fitting의 cross product의 크기 (plane fitting의 stability) (기본값: 1e-6)
+      * `plane_z_threshold`: Plane fitting 결과의 법선 벡터의 Z축 값 (기본값: 0.5)
+      * `plane_max_height`: Plane fitting 결과와 로봇좌표계 사이의 최대 직선거리 (기본값: 1.5, 단위: [m]) 
+  * `o3d_mapper.py`: Local mapper using Open3D plane detection
     * 지면 검출에 Open3D의 RANSAC 기반 plane detection을 이용한 local mapping 알고리즘
-
+    * Plane fitting을 위한 RANSAC 매개변수
+      * `ransac_num_iters`: RANSAC 기반 plane detection의 (최대) 반복 횟수 (기본값: 1000)
+      * `ransac_num_samples`: Plane fitting에 사용될 점의 개수 (기본값: 3)
+      * `ransac_threshold`: Plane fitting 결과와 점 사이의 거리 임계값 (기본값: 0.05, 단위: [m])
+  
 * **Local path planning**
   * `straight_planner.py`
 
@@ -56,7 +65,8 @@ _bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성
 
 
 #### 3.2. ROS 2 노드
-  * `local_mapper_node.py`: ROS 2의 기본 메세지를 이용한 local mapper의 ROS 2 node
+  * `local_mapper_node.py`: Local mapper wrapper (ROS 2 node)
+    * Local map을 `nav_msgs/OccupancyGrid` 메세지로 publish하는 ROS 2 node
     * Subscribed topics
       * Point cloud: `local_mapper_node/point_cloud` (type: `sensor_msgs/PointCloud2`, unit: [m]) 
     * Publishing topics
