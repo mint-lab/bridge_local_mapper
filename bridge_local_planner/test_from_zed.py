@@ -49,11 +49,13 @@ def test_from_zed(mapper: GTrackMapper, svo_file: str='', added_params: dict={},
 
     # Open a ZED camera or a SVO file.
     zed = ZED()
-    zed.open(svo_file=svo_file, **zed_params)
+    success = zed.open(svo_file=svo_file, **zed_params)
+    if not success:
+        return
     if print_info:
         print_zed_info(zed)
 
-    while zed.is_open():
+    while True:
         # Grab the ZED measurements.
         time_start = time.time()
         if not zed.grab():
