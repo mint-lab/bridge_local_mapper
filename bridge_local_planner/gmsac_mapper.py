@@ -9,7 +9,7 @@ except ImportError:
     from bridge_local_planner.gtrack_mapper import GTrackMapper, generate_pointcloud, test_pointcloud
 
 
-class GConstMapper(GTrackMapper):
+class GMSACMapper(GTrackMapper):
     """Local mappper with ground plane constraints"""
 
     def __init__(self, map_x_length=10., map_y_length=10., map_cellsize=0.1) -> None:
@@ -28,7 +28,7 @@ class GConstMapper(GTrackMapper):
 
     def detect_ground(self, pts: np.array) -> tuple:
         """Detect the ground plane with ground plane constraints."""
-        best_plane, best_mask, best_score = None, None, 0
+        best_plane, best_mask, best_loss = None, None, np.inf
         ransac_num_iters = self.params['ransac_num_iters']
         iter = 0
         while iter < ransac_num_iters:
@@ -51,12 +51,12 @@ class GConstMapper(GTrackMapper):
             # Evaluate the plane
             dist = pts @ plane[:3] + plane[-1]
             mask = np.abs(dist) < self.params['ransac_threshold']
-            score = np.sum(mask)
-            if score > best_score:
+            loss = np.sum(dist[mask]**2) + (len(pts) - np.sum(mask)) * self.params['ransac_threshold']**2
+            if loss < best_loss:
                 best_plane = plane
                 best_mask = mask
-                best_score = score
-                inlier_ratio = score / len(pts)
+                best_loss = loss
+                inlier_ratio = np.sum(mask) / len(pts)
                 new_num_iters = np.log(1 - self.params['ransac_confidence']) / np.log(1 - inlier_ratio ** self.params['ransac_num_samples'])
                 ransac_num_iters = max(min(new_num_iters, self.params['ransac_num_iters']), self.params['ransac_min_iters'])
 
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     pts = np.asarray(pcd.points)
 
     # Test the local mapper.
-    mapper = GConstMapper()
+    mapper = GMSACMapper()
     mapper.set_params({
         'pts_sampling_step' : 4,
         'ground_mapping'    : True,

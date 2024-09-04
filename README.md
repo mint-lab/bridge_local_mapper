@@ -8,20 +8,23 @@ _bridge\_local\_planner_는 NRF-Bridge 프로젝트에서 **지역 지도 작성
 * **Local mapping**
   * `gtrack_mapper.py`: Local mapper with ground plane constraints, asymmetric MSAC, and plane tracking (**추천**)
     * 지면의 제약조건과 비대칭 MSAC, 그리고 평면 추적을 모두 이용한 지면 검출과 장애물 분리를 이용한 local mapping 알고리즘
-  * `gconst_mapper.py`: Local mapper with ground plane constraints
-    * 지면의 제약조건만 이용한 local mapping 알고리즘
-    * Ground plane constraints을 위한 매개변수
-      * `ransac_confidence`: RANSAC의 빠른 종료 검사를 위한 신뢰도 값 (기본값: 0.99)
-      * `ransac_refinement`: RANSAC 후에 inlier 점들을 이용한 plane fitting 재수행 여부 (기본값: True)
-      * `plane_norm_threshold`: Plane fitting의 cross product의 크기 (plane fitting의 stability) (기본값: 1e-6)
-      * `plane_z_threshold`: Plane fitting 결과의 법선 벡터의 Z축 값 (기본값: 0.5)
-      * `plane_max_height`: Plane fitting 결과와 로봇좌표계 사이의 최대 직선거리 (기본값: 1.5, 단위: [m]) 
   * `o3d_mapper.py`: Local mapper using Open3D plane detection
     * 지면 검출에 Open3D의 RANSAC 기반 plane detection을 이용한 local mapping 알고리즘
-    * Plane fitting을 위한 RANSAC 매개변수
+    * 매개변수
       * `ransac_num_iters`: RANSAC 기반 plane detection의 (최대) 반복 횟수 (기본값: 1000)
       * `ransac_num_samples`: Plane fitting에 사용될 점의 개수 (기본값: 3)
       * `ransac_threshold`: Plane fitting 결과와 점 사이의 거리 임계값 (기본값: 0.05, 단위: [m])
+  * `gconst_mapper.py`: Local mapper with ground plane constraints
+    * 지면의 제약조건과 RANSAC의 adaptive termination을 적용한 local mapping 알고리즘
+    * 추가 매개변수
+      * `ransac_min_iters`: RANSAC의 최소 반복 횟수 (기본값: 10)
+      * `ransac_confidence`: RANSAC의 반복 횟수를 계산하기 위한 신뢰도 값 (기본값: 0.99)
+      * `ransac_refinement`: RANSAC 후에 inlier 점들을 이용한 plane fitting 재수행 여부 (기본값: True)
+      * `plane_norm_threshold`: Plane fitting의 cross product의 크기 (plane fitting의 stability) (기본값: 1e-6)
+      * `plane_z_threshold`: Plane fitting 결과의 법선 벡터의 Z축 값 (기본값: 0.5)
+      * `plane_max_height`: Plane fitting 결과와 로봇좌표계 사이의 최대 직선거리 (기본값: 1.5, 단위: [m])
+  * `gmsac_mapper.py`: Local mapper with ground plane constraints and MSAC
+    * 지면의 제약조건과 MSAC을 적용한 local mapping 알고리즘
   
 * **Local path planning**
   * `straight_planner.py`
