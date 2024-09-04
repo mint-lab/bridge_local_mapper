@@ -30,7 +30,9 @@ class GTrackMapper:
             'ransac_num_iters'      : 1000,
             'ransac_num_samples'    : 3,
             'ransac_threshold'      : 0.05,     # Unit: [m]
+            'ransac_min_iters'      : 10,
             'ransac_confidence'     : 0.99,
+            'ransac_above_threshold': 2,        # Unit: [m]
             'ransac_refinement'     : True,
             'plane_norm_threshold'  : 1e-6,
             'plane_z_threshold'     : 0.5,
@@ -68,7 +70,7 @@ class GTrackMapper:
 
     def detect_ground(self, pts: np.array) -> tuple:
         """Detect the ground plane."""
-        best_plane, best_mask, best_score = None, None, 0
+        best_plane, best_mask, best_loss = None, None, np.inf
         ransac_num_iters = self.params['ransac_num_iters']
         iter = 0
         while iter < ransac_num_iters:
@@ -90,21 +92,24 @@ class GTrackMapper:
 
             # Evaluate the plane
             dist = pts @ plane[:3] + plane[-1]
-            mask = np.abs(dist) < self.params['ransac_threshold']
-            score = np.sum(mask)
-            if score > best_score:
+            mask_below = (-self.params['ransac_threshold'] < dist) & (dist <= 0)
+            mask_above = (0 < dist) & (dist < self.params['ransac_above_threshold'])
+            loss = np.sum(dist[mask_below]**2) / self.params['ransac_threshold']**2 + np.sum(dist[mask_above]**2) / self.params['ransac_above_threshold']**2 + (len(pts) - np.sum(mask_below) - np.sum(mask_above))
+            if loss < best_loss:
                 best_plane = plane
-                best_mask = mask
-                best_score = score
-                inlier_ratio = score / len(pts)
+                best_mask = np.abs(dist) < self.params['ransac_threshold'] # Find ground points with the tight threshold again
+                best_loss = loss
+                inlier_ratio = np.sum(best_mask) / len(pts)
                 new_num_iters = np.log(1 - self.params['ransac_confidence']) / np.log(1 - inlier_ratio ** self.params['ransac_num_samples'])
-                ransac_num_iters = min(new_num_iters, self.params['ransac_num_iters'])
+                ransac_num_iters = max(min(new_num_iters, self.params['ransac_num_iters']), self.params['ransac_min_iters'])
 
-        if self.params['ransac_refinement']:
+        if self.params['ransac_refinement'] and best_loss > 0:
             # Refine the plane using all inliers
-            best_plane = self.find_plane(pts[best_mask, :])
-            if best_plane[2] < 0:
-                best_plane = -best_plane
+            best_pts = pts[best_mask, :]
+            if len(best_pts) > 3:
+                best_plane = self.find_plane(best_pts)
+                if best_plane[2] < 0:
+                    best_plane = -best_plane
 
         if self.params['debug_info']:
             self.debug_info['ransac_num_iters'] = ransac_num_iters
@@ -272,15 +277,17 @@ def generate_pointcloud(added_params: dict={}, show_o3d=False):
     ground_pts = np.vstack((ground_x.flatten(), ground_y.flatten(), ground_z.flatten())).T
     ground_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(ground_pts))
     ground_pcd.paint_uniform_color([0, 1, 0])
+    all_pcd = ground_pcd
 
     # Generate an cylinderical object.
-    object_mesh = o3d.geometry.TriangleMesh.create_cylinder(radius=params['cyliner_radius'], height=params['cyliner_height'])
-    object_mesh.paint_uniform_color([1, 0, 0])
-    object_mesh.translate(params['cyliner_position'] + np.array([0, 0, params['cyliner_height']/2]))
-    object_pcd = object_mesh.sample_points_uniformly(number_of_points=params['cyliner_n_pts'])
+    if params['cyliner_radius'] > 0 and params['cyliner_height'] > 0:
+        object_mesh = o3d.geometry.TriangleMesh.create_cylinder(radius=params['cyliner_radius'], height=params['cyliner_height'])
+        object_mesh.paint_uniform_color([1, 0, 0])
+        object_mesh.translate(params['cyliner_position'] + np.array([0, 0, params['cyliner_height']/2]))
+        object_pcd = object_mesh.sample_points_uniformly(number_of_points=params['cyliner_n_pts'])
+        all_pcd += object_pcd
 
     # Apply the ground rotation.
-    all_pcd = ground_pcd + object_pcd
     all_pts = np.asarray(all_pcd.points)
     rot_angle = np.deg2rad([0, params['ground_tilt_angle'], 0])
     R = o3d.geometry.get_rotation_matrix_from_zyx(rot_angle)

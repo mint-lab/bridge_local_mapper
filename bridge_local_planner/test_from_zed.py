@@ -3,6 +3,8 @@ import numpy as np
 import cv2 as cv
 from sensorpy.zed import ZED, print_zed_info
 from gtrack_mapper import GTrackMapper, print_debug_info
+from gconst_mapper import GConstMapper
+from gmsac_mapper import GMSACMapper
 from o3d_mapper import O3DMapper
 
 
