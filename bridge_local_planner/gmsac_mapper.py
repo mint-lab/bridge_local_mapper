@@ -17,9 +17,9 @@ class GMSACMapper(GTrackMapper):
         super().__init__(map_x_length, map_y_length, map_cellsize)
 
         self.params['ransac_num_iters'] = 1000
-        self.params['ransac_min_iters'] = 10
         self.params['ransac_num_samples'] = 3
         self.params['ransac_threshold'] = 0.05 # Unit: [m]
+        self.params['ransac_min_iters'] = 10
         self.params['ransac_confidence'] = 0.99
         self.params['ransac_refinement'] = True
         self.params['plane_norm_threshold'] = 1e-6
@@ -56,15 +56,17 @@ class GMSACMapper(GTrackMapper):
                 best_plane = plane
                 best_mask = mask
                 best_loss = loss
-                inlier_ratio = np.sum(mask) / len(pts)
+                inlier_ratio = np.sum(best_mask) / len(pts)
                 new_num_iters = np.log(1 - self.params['ransac_confidence']) / np.log(1 - inlier_ratio ** self.params['ransac_num_samples'])
                 ransac_num_iters = max(min(new_num_iters, self.params['ransac_num_iters']), self.params['ransac_min_iters'])
 
         if self.params['ransac_refinement']:
             # Refine the plane using all inliers
-            best_plane = self.find_plane(pts[best_mask, :])
-            if best_plane[2] < 0:
-                best_plane = -best_plane
+            best_pts = pts[best_mask, :]
+            if len(best_pts) > 3:
+                best_plane = self.find_plane(best_pts)
+                if best_plane[2] < 0:
+                    best_plane = -best_plane
 
         if self.params['debug_info']:
             self.debug_info['ransac_num_iters'] = ransac_num_iters
