@@ -89,7 +89,6 @@ if __name__ == '__main__':
     mapper = GMSACMapper()
     mapper.set_params({
         'pts_sampling_step' : 4,
-        'ground_mapping'    : True,
         'debug_info'        : False,
     })
     test_pointcloud(mapper, pts, show_map=True, show_debug_info=mapper.params['debug_info'])
