@@ -366,6 +366,31 @@ def test_pointcloud(mapper: GTrackMapper, pts: np.array, added_params: dict={}, 
             o3d.visualization.draw(geometries, show_skybox=False, show_ui=True)
 
 
+def create_mapper(mapper_name: str, params: dict=None) -> GTrackMapper:
+    """Create a local mapper instance."""
+    map_x_length = 10
+    map_y_length = 10
+    map_cellsize = 0.1
+    if 'map_x_length' in params:
+        map_x_length = params['map_x_length']
+    if 'map_y_length' in params:
+        map_y_length = params['map_y_length']
+    if 'map_cellsize' in params:
+        map_cellsize = params['map_cellsize']
+
+    if mapper_name.lower() == 'o3dmapper' or mapper_name.lower() == 'o3d_mapper':
+        from o3d_mapper import O3DMapper
+        return O3DMapper(map_x_length, map_y_length, map_cellsize)
+    elif mapper_name.lower() == 'gconstkmapper' or mapper_name.lower() == 'gconst_mapper':
+        from gconst_mapper import GConstMapper
+        return GConstMapper(map_x_length, map_y_length, map_cellsize)
+    elif mapper_name.lower() == 'gmsackmapper' or mapper_name.lower() == 'gmsac_mapper':
+        from gmsac_mapper import GMSACMapper
+        return GMSACMapper(map_x_length, map_y_length, map_cellsize)
+    elif mapper_name.lower() == 'gtrackmapper' or mapper_name.lower() == 'gtrack_mapper':
+        return GTrackMapper(map_x_length, map_y_length, map_cellsize)
+
+
 if __name__ == '__main__':
     # Read a point cloud from a file.
     import open3d as o3d
@@ -393,7 +418,6 @@ if __name__ == '__main__':
     mapper = GTrackMapper()
     mapper.set_params({
         'pts_sampling_step' : 4,
-        'ground_mapping'    : True,
         'debug_info'        : False,
     })
     test_pointcloud(mapper, pts, show_map=True, show_debug_info=mapper.params['debug_info'])
