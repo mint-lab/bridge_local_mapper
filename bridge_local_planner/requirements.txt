@@ -1,5 +1,5 @@
 numpy
 matplotlib
 opencv-python
-yaml
+pyyaml
 open3d

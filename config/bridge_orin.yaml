@@ -1,0 +1,14 @@
+local_mapper_node:
+  ros__parameters:
+    map_x_length: 4
+    map_y_length: 2
+    map_cellsize: 0.01
+    map_frame_id: "map"
+    config_params: |
+      robot2sensor_T:
+        - [1.0, 0.0, 0.0, 0.0]
+        - [0.0, 1.0, 0.0, 0.0]
+        - [0.0, 0.0, 1.0, 0.0]
+        - [0.0, 0.0, 0.0, 1.0]
+      pts_sampling_step: 4
+      ransac_confidence: 0.999
