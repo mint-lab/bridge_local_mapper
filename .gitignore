@@ -1,6 +1,18 @@
-weights/
+# ─── Model checkpoints, data dumps, build artifacts ─────────────
+*.pt
 *.pth
+*.ckpt
+*.weights
 *.onnx
+*.h5
+*.tflite
+*.npz
 *.npy
-*.ply
-*.png
+*.zip
+*.tar
+*.tar.gz
+*.7z
+datasets/
+output/
+logs/
+.cache/

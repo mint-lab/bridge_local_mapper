@@ -2,12 +2,15 @@ import numpy as np
 import cv2 as cv
 import open3d as o3d
 import matplotlib.pyplot as plt
-
+from pathlib import Path
+import yaml
+from ai_detectors import build as build_detector
+_cfg_file = Path(__file__).parent / "config" / "detector.yaml"
+DETECTOR  = build_detector(**yaml.safe_load(open(_cfg_file)))
 try:
     from gtrack_mapper import GTrackMapper, generate_pointcloud, test_pointcloud
 except ImportError:
     from bridge_local_planner.gtrack_mapper import GTrackMapper, generate_pointcloud, test_pointcloud
-
 
 class GMSACMapper(GTrackMapper):
     """Local mappper with ground plane constraints"""
@@ -71,8 +74,42 @@ class GMSACMapper(GTrackMapper):
         if self.params['debug_info']:
             self.debug_info['ransac_num_iters'] = ransac_num_iters
         return best_plane, best_mask
+        
+     def apply_pointcloud(self, pts: np.array) -> bool:               # <<< NEW
+        """Copy of parent method + optional AI pre-filter."""        # <<< NEW
 
+        # ---- (a) sample & depth-filter  ---------------------------  # <<< NEW
+        step = self.params.get('pts_sampling_step', 1)               # <<< NEW
+        sample_idx = range(0, len(pts), step)                        # <<< NEW
+        sample_pts = pts[sample_idx, :] if step > 1 else pts         # <<< NEW
 
+        depth_max = self.params.get('pts_max_depth', np.inf)         # <<< NEW
+        valid_mask = sample_pts[:, 2] < depth_max                    # <<< NEW
+        valid_pts  = sample_pts[valid_mask, :]                       # <<< NEW
+        if len(valid_pts) < self.params.get('pts_min_pts', 30):      # <<< NEW
+            return False                                             # <<< NEW
+
+        # transform to robot frame                                    # <<< NEW
+        valid_pts = valid_pts @ self.sensor2robot_T[:3,:3].T + self.sensor2robot_T[:3,-1]  # <<< NEW
+
+        # ---- (b) OPTIONAL call to DINO / SAM / YOLO ---------------  # <<< NEW
+        if hasattr(self, "current_rgb_frame") and self.current_rgb_frame is not None:      # <<< NEW
+            det_out = DETECTOR.detect(self.current_rgb_frame)                             # <<< NEW
+            boxes   = det_out["boxes"]                                                    # <<< NEW
+            if boxes.shape[0] == 0:   # model says “no ground”                            # <<< NEW
+                return False                                                             # <<< NEW
+            # TODO: project frustums & crop valid_pts if you want even faster RANSAC      # <<< NEW
+        # ------------------------------------------------------------------------------  # <<< NEW
+
+        # ---- (c) run your existing RANSAC plane fit ---------------  # <<< NEW
+        ground_plane, ground_mask = self.detect_ground(valid_pts)     # <<< NEW
+        if ground_plane is None:                                      # <<< NEW
+            return False                                              # <<< NEW
+
+        # ---- (d) reuse parent’s map-update logic ------------------  # <<< NEW
+        # You can copy GTrackMapper.apply_pointcloud()’s post-RANSAC   # <<< NEW
+        # section here, or simply call super() if it accepts override  # <<< NEW
+        return super().apply_pointcloud(pts)                          # <<< NEW
 if __name__ == '__main__':
     # Read a point cloud from a file.
     # pcd_file = '../data/231031_HYU_Yang/zed_17-01-03.ply'
