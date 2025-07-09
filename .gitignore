@@ -1,0 +1,6 @@
+weights/
+*.pth
+*.onnx
+*.npy
+*.ply
+*.png
