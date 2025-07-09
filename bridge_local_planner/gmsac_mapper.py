@@ -74,8 +74,8 @@ class GMSACMapper(GTrackMapper):
         if self.params['debug_info']:
             self.debug_info['ransac_num_iters'] = ransac_num_iters
         return best_plane, best_mask
-        
-     def apply_pointcloud(self, pts: np.array) -> bool:               # <<< NEW
+
+    def apply_pointcloud(self, pts: np.array) -> bool:               # <<< NEW
         """Copy of parent method + optional AI pre-filter."""        # <<< NEW
 
         # ---- (a) sample & depth-filter  ---------------------------  # <<< NEW
