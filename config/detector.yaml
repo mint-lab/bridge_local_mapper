@@ -1,5 +1,0 @@
-name: dino            # dino / sam / yolo
-device: cuda
-prompt: "ground floor road"
-box_threshold: 0.10
-text_threshold: 0.10

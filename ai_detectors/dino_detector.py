@@ -1,7 +1,7 @@
 # ai_detectors/dino_detector.py
 import numpy as np, cv2 as cv, torch
 from pathlib import Path
-from groundingdino.util.inference import Model
+from GroundingDINO.groundingdino.util.inference import Model
 from .base import Detector
 
 _ROOT  = Path(__file__).resolve().parent.parent
@@ -21,7 +21,11 @@ class DinoDetector(Detector):
         if DinoDetector._model is None:
             if not _CKPT.exists():
                 raise FileNotFoundError(f"DINO weight not found: {_CKPT}")
-            DinoDetector._model = Model(cfg=str(_CFG), ckpt=str(_CKPT), device=device)
+            DinoDetector._model = Model(
+    model_config_path=str(_CFG),
+    model_checkpoint_path=str(_CKPT),
+    device=device
+)
 
     def detect(self, bgr_img):
         bgr_img = bgr_img.copy()  # groundingdino modifies in-place

@@ -1,8 +1,9 @@
+import argparse
 import numpy as np
 import cv2 as cv
 import open3d as o3d
 import matplotlib.pyplot as plt
-
+from pathlib import Path
 try:
     from gtrack_mapper import GTrackMapper, generate_pointcloud, test_pointcloud
 except ImportError:
@@ -83,6 +84,17 @@ if __name__ == '__main__':
     # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_478.ply'
     # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_565.ply'
     pcd = o3d.io.read_point_cloud(pcd_file)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cloud",required=True,help="Path to a .ply file(absolute or relative)",)
+    args=parser.parse_args()
+    BASE_DIR  = Path(__file__).resolve().parents[1]
+    cloudpath = Path(args.cloud).expanduser()
+    if not cloudpath.is_absolute():
+        cloudpath=BASE_DIR/cloudpath
+    cloudpath=cloudpath.resolve()
+    if not cloudpath.exists():
+        raise FileNotFoundError(cloudpath)
+    pcd=o3d.io.read_point_cloud(str(cloudpath))
     pts = np.asarray(pcd.points)
 
     # Test the local mapper.
