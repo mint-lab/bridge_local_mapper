@@ -100,6 +100,15 @@ class GMSACMapper(GTrackMapper):
         if hasattr(self, "current_rgb_frame") and self.current_rgb_frame is not None:      # <<< NEW
             det_out = DETECTOR.detect(self.current_rgb_frame)                             # <<< NEW
             boxes   = det_out["boxes"]                                                    # <<< NEW
+            vis_img = self.current_rgb_frame.copy()
+            for (x1, y1, x2, y2) in boxes.astype(int):
+                cv2.rectangle(vis_img, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=2)
+
+            plt.figure(figsize=(10, 6))
+            plt.imshow(cv2.cvtColor(vis_img, cv2.COLOR_BGR2RGB))
+            plt.title("🔍 GroundingDINO Segmentation Output")
+            plt.axis("off")
+            plt.show()
             if boxes.shape[0] == 0:   # model says “no ground”                            # <<< NEW
                 return False                                                             # <<< NEW
             # TODO: project frustums & crop valid_pts if you want even faster RANSAC      # <<< NEW
@@ -113,6 +122,10 @@ class GMSACMapper(GTrackMapper):
         # ---- (d) reuse parent’s map-update logic ------------------  # <<< NEW
         # You can copy GTrackMapper.apply_pointcloud()’s post-RANSAC   # <<< NEW
         # section here, or simply call super() if it accepts override  # <<< NEW
+                # ---- (e) save raw object mask for visualization -----------  # line ≈ 240
+        if self.params.get('debug_info', False):                      # line ≈ 241
+            self.debug_info['semantic_raw_mask'] = det_out           # line ≈ 242
+
         return super().apply_pointcloud(pts)                          # <<< NEW
 
 import numpy as np
