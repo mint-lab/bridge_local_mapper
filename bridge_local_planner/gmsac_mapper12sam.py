@@ -1,0 +1,302 @@
+from pathlib import Path, sys           # <-- add this
+sys.path.append(str(Path(__file__).resolve().parents[1]))  # <-- fix A in code form
+sys.path.append(str(Path(__file__).resolve().parents[1] / "GroundingDINO"))
+
+import numpy as np
+import cv2 as cv
+import cv2
+import open3d as o3d
+import matplotlib.pyplot as plt
+from pathlib import Path
+import yaml
+from ai_detectors import build as build_detector
+_cfg_file = Path(__file__).parent / "config" / "detector.yaml"
+DETECTOR  = build_detector(**yaml.safe_load(open(_cfg_file)))
+try:
+    from gtrack_mapper import GTrackMapper, generate_pointcloud, test_pointcloud
+except ImportError:
+    from bridge_local_planner.gtrack_mapper import GTrackMapper, generate_pointcloud, test_pointcloud
+
+def project_points(pts, K):
+    # pts: (N,3), K: (3,3)
+    pts_cam = pts.T
+    uvw = K @ pts_cam
+    u = (uvw[0] / uvw[2]).astype(int)
+    v = (uvw[1] / uvw[2]).astype(int)
+    return u, v
+
+def points_in_boxes(u, v, boxes):
+    mask = np.zeros(len(u), dtype=bool)
+    for (x1, y1, x2, y2) in boxes.astype(int):
+        in_box = (u >= x1) & (u <= x2) & (v >= y1) & (v <= y2)
+        mask |= in_box
+    return mask
+class GMSACMapper(GTrackMapper):
+    """Local mappper with ground plane constraints"""
+
+    def __init__(self, map_x_length=10., map_y_length=10., map_cellsize=0.1) -> None:
+        """Initialize the local mapper."""
+        super().__init__(map_x_length, map_y_length, map_cellsize)
+
+        self.params['ransac_num_iters'] = 1000
+        self.params['ransac_num_samples'] = 3
+        self.params['ransac_threshold'] = 0.05 # Unit: [m]
+        self.params['ransac_min_iters'] = 10
+        self.params['ransac_confidence'] = 0.99
+        self.params['ransac_refinement'] = True
+        self.params['plane_norm_threshold'] = 1e-6
+        self.params['plane_z_threshold'] = 0.5
+        self.params['plane_max_height'] = 1.5 # Unit: [m]
+
+    def detect_ground(self, pts: np.array) -> tuple:
+        """Detect the ground plane with ground plane constraints."""
+        best_plane, best_mask, best_loss = None, None, np.inf
+        ransac_num_iters = self.params['ransac_num_iters']
+        iter = 0
+        while iter < ransac_num_iters:
+            # Generate a random plane
+            iter += 1
+            sample_index = np.random.choice(len(pts), self.params['ransac_num_samples'], replace=False)
+            sample_pts = pts[sample_index, :]
+            plane = np.cross(sample_pts[1] - sample_pts[0], sample_pts[2] - sample_pts[0])
+            if np.linalg.norm(plane) < self.params['plane_norm_threshold']:
+                continue
+            plane /= np.linalg.norm(plane)
+            if -self.params['plane_z_threshold'] < plane[2] < self.params['plane_z_threshold']:
+                continue
+            if plane[2] < 0:
+                plane = -plane
+            plane = np.hstack((plane, -plane.dot(sample_pts[0])))
+            if plane[3] > self.params['plane_max_height'] or plane[3] < -self.params['plane_max_height']:
+                continue
+
+            # Evaluate the plane
+            dist = pts @ plane[:3] + plane[-1]
+            mask = np.abs(dist) < self.params['ransac_threshold']
+            loss = np.sum(dist[mask]**2) + (len(pts) - np.sum(mask)) * self.params['ransac_threshold']**2
+            if loss < best_loss:
+                best_plane = plane
+                best_mask = mask
+                best_loss = loss
+                inlier_ratio = np.sum(best_mask) / len(pts)
+                new_num_iters = np.log(1 - self.params['ransac_confidence']) / np.log(1 - inlier_ratio ** self.params['ransac_num_samples'])
+                ransac_num_iters = max(min(new_num_iters, self.params['ransac_num_iters']), self.params['ransac_min_iters'])
+
+        if self.params['ransac_refinement']:
+            # Refine the plane using all inliers
+            best_pts = pts[best_mask, :]
+            if len(best_pts) > 3:
+                best_plane = self.find_plane(best_pts)
+                if best_plane[2] < 0:
+                    best_plane = -best_plane
+
+        if self.params['debug_info']:
+            self.debug_info['ransac_num_iters'] = ransac_num_iters
+        return best_plane, best_mask
+
+    def apply_pointcloud(self, pts: np.array) -> bool:
+    """Copy of parent method + DINO→SAM segmentation pipeline."""
+    # ---- (a) sample & depth-filter  ---------------------------
+    step = self.params.get('pts_sampling_step', 1)
+    sample_idx = range(0, len(pts), step)
+    sample_pts = pts[sample_idx, :] if step > 1 else pts
+
+    depth_max = self.params.get('pts_max_depth', np.inf)
+    valid_mask = sample_pts[:, 2] < depth_max
+    valid_pts = sample_pts[valid_mask, :]
+    if len(valid_pts) < self.params.get('pts_min_pts', 30):
+        print("[DEBUG] Not enough valid points after depth filtering.")
+        return False
+
+    valid_pts = valid_pts @ self.sensor2robot_T[:3,:3].T + self.sensor2robot_T[:3,-1]
+
+    # ---- (b) AI Detection/Segmentation  -----------------------
+    print("DEBUG: current_rgb_frame type:", type(self.current_rgb_frame))
+    ai_filtered_pts = valid_pts  # fallback if no mask
+    if hasattr(self, "current_rgb_frame") and self.current_rgb_frame is not None:
+        det_out = DETECTOR.detect(self.current_rgb_frame)
+        print("DEBUG: det_out =", det_out)
+        if det_out is not None and "boxes" in det_out:
+            boxes = det_out["boxes"]
+            print("DEBUG: DINO raw boxes shape:", boxes.shape)
+            print("DEBUG: DINO raw boxes (normalized):", boxes)
+
+            # Prepare camera intrinsics
+            fx, fy, cx, cy = 600, 600, 320, 240  # TODO: Replace with actual
+            K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+            image_shape = self.current_rgb_frame.shape
+            H, W = image_shape[0], image_shape[1]
+
+            # Convert normalized boxes to pixel coords
+            boxes_pixel = np.zeros_like(boxes)
+            boxes_pixel[:, 0] = boxes[:, 0] * W
+            boxes_pixel[:, 1] = boxes[:, 1] * H
+            boxes_pixel[:, 2] = boxes[:, 2] * W
+            boxes_pixel[:, 3] = boxes[:, 3] * H
+            print("DEBUG: boxes_pixel:", boxes_pixel)
+
+            u, v = project_points(valid_pts, K)
+            box_mask = points_in_boxes(u, v, boxes_pixel)
+            ai_filtered_pts = valid_pts[box_mask]
+            print("Points before box filter:", len(valid_pts))
+            print("Points after box filter:", len(ai_filtered_pts))
+
+            # --- [DINO BOXES VISUALIZATION] (optional) ---
+            vis_img = self.current_rgb_frame.copy()
+            for (x1, y1, x2, y2) in boxes_pixel.astype(int):
+                cv.rectangle(vis_img, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=2)
+            plt.figure(figsize=(10, 6))
+            plt.imshow(cv.cvtColor(vis_img, cv.COLOR_BGR2RGB))
+            plt.title("DINO Box Detection Output")
+            plt.axis("off")
+            plt.show()
+
+            # --- [SAM SEGMENTATION: Run After DINO Detection] ---
+            if boxes_pixel.shape[0] > 0:
+                from segment_anything import sam_model_registry, SamPredictor
+                import torch
+
+                sam_checkpoint = "weights/sam_vit_h_4b8939.pth"
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                sam = sam_model_registry["vit_h"](checkpoint=sam_checkpoint).to(device)
+                predictor = SamPredictor(sam)
+                predictor.set_image(self.current_rgb_frame)
+
+                color_palette = [
+                    [0, 255, 0], [255, 0, 0], [0, 0, 255], [255, 255, 0], [0, 255, 255]
+                ]
+                vis_img = self.current_rgb_frame.copy()
+                for i, box in enumerate(boxes_pixel.astype(int)):
+                    masks, scores, logits = predictor.predict(
+                        point_coords=None,
+                        point_labels=None,
+                        box=np.array([box]),
+                        multimask_output=False,
+                    )
+                    mask = masks[0]
+                    vis_img[mask] = color_palette[i % len(color_palette)]
+                    # Optionally: draw the box too
+                    x1, y1, x2, y2 = box
+                    cv.rectangle(vis_img, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                plt.figure(figsize=(10, 6))
+                plt.imshow(cv.cvtColor(vis_img, cv.COLOR_BGR2RGB))
+                plt.title("SAM Segmentation Output")
+                plt.axis("off")
+                plt.show()
+            else:
+                print("[DEBUG] No DINO boxes found for SAM.")
+
+            if ai_filtered_pts.shape[0] == 0:
+                print("[WARN] All points filtered by box mask!")
+                return False
+        else:
+            print("[WARN] DINO returned no 'boxes'—using all points")
+    else:
+        print("[WARN] No current_rgb_frame!")
+
+    # ---- (c) run your existing RANSAC plane fit ---------------
+    ground_plane, ground_mask = self.detect_ground(ai_filtered_pts)
+    if ground_plane is None:
+        print("[INFO] RANSAC found no ground plane.")
+        return False
+
+    # Optionally store debug info
+    if self.params.get('debug_info', False):
+        self.debug_info['semantic_raw_mask'] = det_out
+
+    return super().apply_pointcloud(ai_filtered_pts)
+
+
+if __name__ == '__main__':
+    
+    # ------------------------------------------------------------------ #
+    # 1️⃣  CLI flag to pick the .ply file                                #
+    # ------------------------------------------------------------------ #
+    import argparse, sys
+    parser = argparse.ArgumentParser(
+        description="Run the GMSAC local mapper on a point-cloud file"
+    )
+    parser.add_argument(
+        "--cloud",
+        required=True,
+        help="Path to a .ply point cloud (absolute or relative to repo root)",
+    )
+    args = parser.parse_args()
+
+    # ------------------------------------------------------------------ #
+    # 2️⃣  Resolve path no matter where you launch                        #
+    # ------------------------------------------------------------------ #
+    BASE_DIR  = Path(__file__).resolve().parents[1]   # repo root
+    cloudpath = Path(args.cloud).expanduser()
+    if not cloudpath.is_absolute():
+        cloudpath = BASE_DIR / cloudpath
+    cloudpath = cloudpath.resolve()
+    if not cloudpath.exists():
+        print(f"[ERROR] Point cloud not found: {cloudpath}", file=sys.stderr)
+        sys.exit(1)
+
+    # ------------------------------------------------------------------ #
+    # 3️⃣  Load cloud and run mapper                                      #
+    # ------------------------------------------------------------------ #
+    pcd = o3d.io.read_point_cloud(str(cloudpath))
+    pts = np.asarray(pcd.points)
+
+    mapper = GMSACMapper()
+    mapper.set_params({
+        "pts_sampling_step": 4,
+        "debug_info": False,
+    })
+    rgb_path = cloudpath.with_suffix(".png")  
+    if rgb_path.exists():
+        mapper.current_rgb_frame = cv.imread(str(rgb_path))
+    else:
+        print(f"[WARN] RGB image not found at: {rgb_path}")
+    test_pointcloud(
+        mapper,
+        pts,
+        show_map=True,
+        show_debug_info=mapper.params["debug_info"],
+    )
+
+    
+    # Read a point cloud from a file.
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-01-03.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_336.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_460.ply'
+    #pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_476.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_478.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_565.ply'
+    #pcd = o3d.io.read_point_cloud(str(cloudpath))
+    #pts = np.asarray(pcd.points)
+
+    # Test the local mapper.
+    """
+    mapper = GMSACMapper()
+    mapper.set_params({
+        'pts_sampling_step' : 4,
+        'debug_info'        : False,
+    })
+    test_pointcloud(mapper, pts, show_map=True, show_debug_info=mapper.params['debug_info'])
+    """    
+    
+    # Read a point cloud from a file.
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-01-03.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_336.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_460.ply'
+    #pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_476.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_478.ply'
+    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_565.ply'
+    #pcd = o3d.io.read_point_cloud(str(cloudpath))
+    #pts = np.asarray(pcd.points)
+
+    # Test the local mapper.
+    """
+    mapper = GMSACMapper()
+    mapper.set_params({
+        'pts_sampling_step' : 4,
+        'debug_info'        : False,
+    })
+    test_pointcloud(mapper, pts, show_map=True, show_debug_info=mapper.params['debug_info'])
+    """
