@@ -17,6 +17,7 @@ try:
 except ImportError:
     from bridge_local_planner.gtrack_mapper import GTrackMapper, generate_pointcloud, test_pointcloud
 
+
 class GMSACMapper(GTrackMapper):
     """Local mappper with ground plane constraints"""
 
@@ -107,6 +108,22 @@ class GMSACMapper(GTrackMapper):
                 print("[WARN] DINO returned no 'boxes'")
                 return False
             boxes   = det_out["boxes"]                                                    # <<< NEW
+            image_shape = self.current_rgb_frame.shape  # (H,W,3) or (H,W)
+            H, W = image_shape[0], image_shape[1]
+
+# Convert to pixel coordinates
+            boxes_pixel = np.zeros_like(boxes)
+            boxes_pixel[:, 0] = boxes[:, 0] * W  # x1
+            boxes_pixel[:, 1] = boxes[:, 1] * H  # y1
+            boxes_pixel[:, 2] = boxes[:, 2] * W  # x2
+            boxes_pixel[:, 3] = boxes[:, 3] * H  # y2
+            print("boxes_pixel:", boxes_pixel)
+            u, v = project_points(valid_pts, K)
+            box_mask = points_in_boxes(u, v, boxes_pixel.astype(int))
+            ai_filtered_pts = valid_pts[box_mask]
+            print("Points before box filter:", len(valid_pts))
+            print("Points after box filter:", len(ai_filtered_pts))
+
             if boxes.shape[0] == 0:
                 print("[INFO] DINO found no valid objects.")
                 return False
@@ -139,7 +156,7 @@ class GMSACMapper(GTrackMapper):
         if self.params.get('debug_info', False):                      # line ≈ 241
             self.debug_info['semantic_raw_mask'] = det_out           # line ≈ 242
 
-        return super().apply_pointcloud(valid_pts)   #return super().apply_pointcloud(pts)                       # <<< NEW
+        return super().apply_pointcloud(ai_filtered_pts)#(valid_pts)   #return super().apply_pointcloud(pts)                       # <<< NEW
 
 if __name__ == '__main__':
     

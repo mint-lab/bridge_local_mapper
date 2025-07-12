@@ -14,7 +14,7 @@ class DinoDetector(Detector):
 
     def __init__(self,
                  device="cuda",
-                 prompt="ground floor road terrain",
+                 prompt="ground floor road terrain person object",
                  box_threshold=0.10,
                  text_threshold=0.10):
         super().__init__(device)

@@ -1,6 +1,6 @@
 name: dino            # dino / sam / yolo
 device: cuda
-prompt: "ground floor road"
+prompt: "person"
 box_threshold: 0.10
 text_threshold: 0.10
 #ckpt_path: GroundingDINO/weights/groundingdino_swint_ogc.pth

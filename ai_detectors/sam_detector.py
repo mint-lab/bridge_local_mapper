@@ -9,7 +9,7 @@ except ImportError:
     sam_model_registry = None      # allow unit tests w/out SAM installed
 
 _ROOT = Path(__file__).resolve().parent.parent
-_CKPT = _ROOT / "weights/sam_vit_b_01ec64.pth"
+_CKPT = _ROOT / "weights/sam_vit_b_4b8939.pth"
 
 class SamDetector(Detector):
     _model = None

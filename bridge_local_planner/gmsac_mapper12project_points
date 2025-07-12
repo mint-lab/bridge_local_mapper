@@ -17,6 +17,20 @@ try:
 except ImportError:
     from bridge_local_planner.gtrack_mapper import GTrackMapper, generate_pointcloud, test_pointcloud
 
+def project_points(pts, K):
+    # pts: (N,3), K: (3,3)
+    pts_cam = pts.T
+    uvw = K @ pts_cam
+    u = (uvw[0] / uvw[2]).astype(int)
+    v = (uvw[1] / uvw[2]).astype(int)
+    return u, v
+
+def points_in_boxes(u, v, boxes):
+    mask = np.zeros(len(u), dtype=bool)
+    for (x1, y1, x2, y2) in boxes.astype(int):
+        in_box = (u >= x1) & (u <= x2) & (v >= y1) & (v <= y2)
+        mask |= in_box
+    return mask
 class GMSACMapper(GTrackMapper):
     """Local mappper with ground plane constraints"""
 
@@ -101,45 +115,96 @@ class GMSACMapper(GTrackMapper):
         print("DEBUG: current_rgb_frame type:", type(self.current_rgb_frame))
         
 
-        if hasattr(self, "current_rgb_frame") and self.current_rgb_frame is not None:      # <<< NEW
-            det_out = DETECTOR.detect(self.current_rgb_frame)                             # <<< NEW
-            if det_out is None or "boxes" not in det_out:
-                print("[WARN] DINO returned no 'boxes'")
-                return False
-            boxes   = det_out["boxes"]                                                    # <<< NEW
-            if boxes.shape[0] == 0:
-                print("[INFO] DINO found no valid objects.")
-                return False
-            print("DEBUG: det_out =", det_out)
-            print("DEBUG: boxes shape:", boxes.shape)
-            print("DEBUG: boxes:", boxes)
-            vis_img = self.current_rgb_frame.copy()
-            for (x1, y1, x2, y2) in boxes.astype(int):
-                cv.rectangle(vis_img, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=2)
+        if hasattr(self, "current_rgb_frame") and self.current_rgb_frame is not None:
+        det_out = DETECTOR.detect(self.current_rgb_frame)
+        print("DEBUG: det_out =", det_out)
+        if det_out is not None and "boxes" in det_out:
+            boxes = det_out["boxes"]
+            print("DEBUG: raw boxes shape:", boxes.shape)
+            print("DEBUG: raw boxes (normalized):", boxes)
 
+            # Prepare camera intrinsics
+            # TODO: replace with your actual intrinsics
+            fx, fy, cx, cy = 600, 600, 320, 240
+            K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+
+            image_shape = self.current_rgb_frame.shape  # (H,W,3)
+            H, W = image_shape[0], image_shape[1]
+
+            # Convert normalized boxes to pixel coords
+            boxes_pixel = np.zeros_like(boxes)
+            boxes_pixel[:, 0] = boxes[:, 0] * W  # x1
+            boxes_pixel[:, 1] = boxes[:, 1] * H  # y1
+            boxes_pixel[:, 2] = boxes[:, 2] * W  # x2
+            boxes_pixel[:, 3] = boxes[:, 3] * H  # y2
+            print("DEBUG: image_shape:", image_shape)
+            print("DEBUG: boxes_pixel:", boxes_pixel)
+            print("[TEST] Prompt:", DETECTOR.prompt)
+            print("[TEST] Box threshold:", DETECTOR.box_thr)
+            print("[TEST] det_out['boxes'] shape:", boxes.shape)
+            print("[TEST] det_out['boxes']:", boxes)
+            print("DEBUG: points projected u range:", np.min(u), np.max(u))
+            print("DEBUG: points projected v range:", np.min(v), np.max(v))
+            print("DEBUG: Number of points before filtering:", len(valid_pts))
+            print("DEBUG: Number of points after filtering:", len(ai_filtered_pts))
+
+
+            u, v = project_points(valid_pts, K)
+            box_mask = points_in_boxes(u, v, boxes_pixel)
+            print("Points before box filter:", len(valid_pts))
+            ai_filtered_pts = valid_pts[box_mask]
+            print("Points after box filter:", len(ai_filtered_pts))
+
+            # Optional: Draw boxes for visualization
+            vis_img = self.current_rgb_frame.copy()
+            for (x1, y1, x2, y2) in boxes_pixel.astype(int):
+                cv.rectangle(vis_img, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=2)
             plt.figure(figsize=(10, 6))
             plt.imshow(cv.cvtColor(vis_img, cv.COLOR_BGR2RGB))
             plt.title("🔍 GroundingDINO Segmentation Output")
             plt.axis("off")
             plt.show()
-            if boxes.shape[0] == 0:   # model says “no ground”                            # <<< NEW
-                return False                                                             # <<< NEW
-            # TODO: project frustums & crop valid_pts if you want even faster RANSAC      # <<< NEW
-        # ------------------------------------------------------------------------------  # <<< NEW
 
-        # ---- (c) run your existing RANSAC plane fit ---------------  # <<< NEW
-        ground_plane, ground_mask = self.detect_ground(valid_pts)     # <<< NEW
-        if ground_plane is None:                                      # <<< NEW
-            return False                                              # <<< NEW
+            #Visualization2
+            plt.figure(figsize=(10,6))
+            plt.imshow(cv.cvtColor(self.current_rgb_frame, cv.COLOR_BGR2RGB))
+            plt.scatter(u, v, s=2, c='yellow', alpha=0.4) # Projected points
+            for (x1, y1, x2, y2) in boxes_pixel.astype(int):
+                plt.gca().add_patch(plt.Rectangle((x1, y1), x2-x1, y2-y1, edgecolor='r', facecolor='none', linewidth=2))
+            plt.title("Projected Points & Boxes Overlay")
+            plt.axis("off")
+            plt.show()
 
-        # ---- (d) reuse parent’s map-update logic ------------------  # <<< NEW
-        # You can copy GTrackMapper.apply_pointcloud()’s post-RANSAC   # <<< NEW
-        # section here, or simply call super() if it accepts override  # <<< NEW
-                # ---- (e) save raw object mask for visualization -----------  # line ≈ 240
-        if self.params.get('debug_info', False):                      # line ≈ 241
-            self.debug_info['semantic_raw_mask'] = det_out           # line ≈ 242
 
-        return super().apply_pointcloud(valid_pts)   #return super().apply_pointcloud(pts)                       # <<< NEW
+            img_dbg = self.current_rgb_frame.copy()
+            for (x1, y1, x2, y2) in boxes_pixel.astype(int):
+                cv2.rectangle(img_dbg, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            plt.figure(figsize=(10, 6))
+            plt.imshow(cv2.cvtColor(img_dbg, cv2.COLOR_BGR2RGB))
+            plt.title(f"[DINO Box Overlay] Prompt: {DETECTOR.prompt}")
+            plt.axis("off")
+            plt.show()
+            if ai_filtered_pts.shape[0] == 0:
+                print("[WARN] All points filtered by box mask!")
+                # Optionally: fallback to original valid_pts or return False
+                # ai_filtered_pts = valid_pts
+                return False
+        else:
+            print("[WARN] DINO returned no 'boxes'—using all points")
+    else:
+        print("[WARN] No current_rgb_frame!")
+
+    # ---- RANSAC on filtered points ----
+    ground_plane, ground_mask = self.detect_ground(ai_filtered_pts)
+    if ground_plane is None:
+        print("[INFO] RANSAC found no ground plane.")
+        return False
+
+    # Optionally store debug info
+    if self.params.get('debug_info', False):
+        self.debug_info['semantic_raw_mask'] = det_out
+
+    return super().apply_pointcloud(ai_filtered_pts)
 
 if __name__ == '__main__':
     
