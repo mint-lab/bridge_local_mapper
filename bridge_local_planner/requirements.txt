@@ -3,3 +3,10 @@ matplotlib
 opencv-python
 pyyaml
 open3d
+torch
+torchvision
+transformers
+pillow
+scipy
+segment-anything
+# For SAM2, install: pip install git+https://github.com/facebookresearch/segment-anything-2.git

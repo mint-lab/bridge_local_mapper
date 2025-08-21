@@ -1,0 +1,104 @@
+{
+  "simple_flat": {
+    "original_ransac": {
+      "avg_time_ms": 170.54448127746582,
+      "std_time_ms": 5.275695271704063,
+      "min_time_ms": 165.8337116241455,
+      "max_time_ms": 180.84311485290527,
+      "avg_accuracy": 0.12075999999999998,
+      "n_successful": 5
+    },
+    "midas": {
+      "avg_time_ms": 896.8340873718262,
+      "std_time_ms": 62.99618089409633,
+      "min_time_ms": 823.5995769500732,
+      "max_time_ms": 999.0742206573486,
+      "avg_accuracy": 0.125,
+      "n_successful": 5
+    },
+    "segformer": {
+      "avg_time_ms": 905.7029247283936,
+      "std_time_ms": 50.4926877719156,
+      "min_time_ms": 821.3446140289307,
+      "max_time_ms": 977.4014949798584,
+      "avg_accuracy": 0.125,
+      "n_successful": 5
+    },
+    "detectron2": {
+      "avg_time_ms": 939.207935333252,
+      "std_time_ms": 91.7682531229421,
+      "min_time_ms": 829.1888236999512,
+      "max_time_ms": 1086.151123046875,
+      "avg_accuracy": 0.125,
+      "n_successful": 5
+    }
+  },
+  "complex_scene": {
+    "original_ransac": {
+      "avg_time_ms": 279.11415100097656,
+      "std_time_ms": 4.978653465966272,
+      "min_time_ms": 273.73576164245605,
+      "max_time_ms": 288.5608673095703,
+      "avg_accuracy": 0.42478,
+      "n_successful": 5
+    },
+    "midas": {
+      "avg_time_ms": 987.2734069824219,
+      "std_time_ms": 36.5891971311612,
+      "min_time_ms": 949.6381282806396,
+      "max_time_ms": 1051.2330532073975,
+      "avg_accuracy": 0.5036,
+      "n_successful": 5
+    },
+    "segformer": {
+      "avg_time_ms": 966.8147563934326,
+      "std_time_ms": 11.222139213055192,
+      "min_time_ms": 948.676347732544,
+      "max_time_ms": 983.4437370300293,
+      "avg_accuracy": 0.5036,
+      "n_successful": 5
+    },
+    "detectron2": {
+      "avg_time_ms": 1013.7337207794191,
+      "std_time_ms": 27.684357236047923,
+      "min_time_ms": 980.9379577636719,
+      "max_time_ms": 1046.5240478515625,
+      "avg_accuracy": 0.5036,
+      "n_successful": 5
+    }
+  },
+  "large_cloud": {
+    "original_ransac": {
+      "avg_time_ms": 501.7819404602051,
+      "std_time_ms": 19.03450497249146,
+      "min_time_ms": 486.62471771240234,
+      "max_time_ms": 539.3226146697998,
+      "avg_accuracy": 0.32192,
+      "n_successful": 5
+    },
+    "midas": {
+      "avg_time_ms": 1250.8649349212646,
+      "std_time_ms": 39.399156090572355,
+      "min_time_ms": 1211.7481231689453,
+      "max_time_ms": 1321.969747543335,
+      "avg_accuracy": 0.37334999999999996,
+      "n_successful": 5
+    },
+    "segformer": {
+      "avg_time_ms": 1225.1885890960693,
+      "std_time_ms": 16.258080730556767,
+      "min_time_ms": 1205.5814266204834,
+      "max_time_ms": 1247.1520900726318,
+      "avg_accuracy": 0.37334999999999996,
+      "n_successful": 5
+    },
+    "detectron2": {
+      "avg_time_ms": 1253.4048080444336,
+      "std_time_ms": 69.09301396851797,
+      "min_time_ms": 1188.6920928955078,
+      "max_time_ms": 1386.732816696167,
+      "avg_accuracy": 0.37334999999999996,
+      "n_successful": 5
+    }
+  }
+}

@@ -3,6 +3,8 @@ from scipy.spatial.transform import Rotation
 import cv2 as cv
 import matplotlib.pyplot as plt
 import yaml
+import time
+from .model_ground_detector import ModelGroundDetector
 
 
 class GTrackMapper:
@@ -22,6 +24,18 @@ class GTrackMapper:
         }
 
         self.debug_info = {}
+        
+        # Model-based ground detection
+        self.use_model_detection = False  # Set to True to use semantic segmentation
+        self.model_name = 'midas'  # Options: 'midas', 'segformer', 'detectron2', 'esanet', 'sam', 'sam2'
+        self.model_detector = None
+        self.timing_results = {
+            'original_ransac': [],
+            'model_detection': []
+        }
+        self.current_rgb_image = None  # Store RGB image for model detection
+        self.current_depth_image = None  # Store depth if available
+        
         self.params = {
             'robot2sensor_T'        : [[0, -1, 0, 0], [0, 0, -1, 0], [1, 0, 0, 0], [0, 0, 0, 1]],
             'pts_sampling_step'     : 1,
@@ -67,6 +81,28 @@ class GTrackMapper:
         """Save the parameters to a file."""
         with open(yaml_file, 'w') as f:
             yaml.dump(self.params, f)
+            
+    def set_rgb_image(self, rgb_image):
+        """Set RGB image for model-based detection."""
+        self.current_rgb_image = rgb_image
+        
+    def set_depth_image(self, depth_image):
+        """Set depth image for RGB-D models."""
+        self.current_depth_image = depth_image
+        
+    def set_detection_method(self, use_model=False, model_name='midas'):
+        """Switch between original RANSAC and model-based detection.
+        
+        Args:
+            use_model: If True, use semantic segmentation model
+            model_name: Name of model to use ('midas', 'segformer', 'detectron2', 'esanet', 'sam', 'sam2')
+        """
+        self.use_model_detection = use_model
+        self.model_name = model_name
+        
+        if use_model and self.model_detector is None:
+            self.model_detector = ModelGroundDetector(model_name)
+            print(f"Initialized {model_name} model for ground detection")
 
     def detect_ground(self, pts: np.array) -> tuple:
         """Detect the ground plane."""
@@ -180,28 +216,45 @@ class GTrackMapper:
         # Compensate the sensor pose.
         valid_pts = valid_pts @ self.sensor2robot_T[:3, :3].T + self.sensor2robot_T[:3, -1]
 
-        # Detect the ground plane using semantic segmentation models OR original RANSAC
-        if hasattr(self, 'use_semantic_model') and self.use_semantic_model:
-            # This is where the wrapper becomes ESSENTIAL:
-            # 1. Models need RGB image (not point cloud)
-            # 2. Different APIs for each model
-            # 3. Different output formats
-            # 4. Need 2D→3D mask conversion
-            # 5. Need plane fitting to extracted ground points
-            from model_ground_detector import ModelGroundDetector
-            detector = ModelGroundDetector(self.model_name)
-            ground_plane, ground_mask, timing = detector.detect_ground_with_timing(
-                self.rgb_image, valid_pts, self.depth_image
+        # Detect the ground plane using selected method
+        if self.use_model_detection and self.current_rgb_image is not None:
+            # Use model-based detection
+            print(f"Using {self.model_name} model for ground detection...")
+            start_time = time.time()
+            
+            if self.model_detector is None:
+                self.model_detector = ModelGroundDetector(self.model_name)
+            
+            ground_plane, ground_mask, model_time = self.model_detector.detect_ground_with_timing(
+                self.current_rgb_image, valid_pts, self.current_depth_image
             )
+            
+            self.timing_results['model_detection'].append(model_time)
+            print(f"{self.model_name} detection time: {model_time*1000:.2f} ms")
+            
+            # Also run original for comparison
+            orig_start = time.time()
+            orig_plane, orig_mask = self.detect_ground(valid_pts)
+            orig_time = time.time() - orig_start
+            self.timing_results['original_ransac'].append(orig_time)
+            print(f"Original RANSAC time: {orig_time*1000:.2f} ms")
+            
+            # Print speedup
+            if orig_time > 0:
+                speedup = orig_time / model_time
+                print(f"Speedup: {speedup:.2f}x")
+                
         else:
-            # Original RANSAC method
+            # Use original RANSAC detection
+            start_time = time.time()
             ground_plane, ground_mask = self.detect_ground(valid_pts)
+            detection_time = time.time() - start_time
+            self.timing_results['original_ransac'].append(detection_time)
             
         if ground_plane is None:
             return False
 
         # Compensate the ground plane to make it as the XY reference plane.
-        #Roll Yaw Pitch adjustment
         if self.params['ground_correct']:
             ground_T = self.get_ground_transform(ground_plane)
             valid_pts = valid_pts @ ground_T[:3, :3].T + ground_T[:3, -1]
@@ -240,6 +293,29 @@ class GTrackMapper:
             self.debug_info['object_pts'] = range_pts[object_map_mask, :]
 
         return True
+    
+    def print_timing_summary(self):
+        """Print timing comparison between detection methods."""
+        print("\n" + "="*60)
+        print("GROUND DETECTION TIMING COMPARISON")
+        print("="*60)
+        
+        for method, times in self.timing_results.items():
+            if times:
+                avg_time = np.mean(times) * 1000  # Convert to ms
+                std_time = np.std(times) * 1000
+                print(f"{method:20s}: {avg_time:.2f} ± {std_time:.2f} ms")
+        
+        # Calculate speedup
+        if (self.timing_results['original_ransac'] and 
+            self.timing_results['model_detection']):
+            orig_avg = np.mean(self.timing_results['original_ransac'])
+            model_avg = np.mean(self.timing_results['model_detection'])
+            if model_avg > 0:
+                speedup = orig_avg / model_avg
+                print(f"\nSpeedup: {speedup:.2f}x")
+        
+        print("="*60 + "\n")
 
     def imshow_map_pyplot(self, data, title=None, cmap='jet', n_xticks=5, n_yticks=5):
         """Plot the map data using Matplotlib PyPlot."""
@@ -264,176 +340,3 @@ class GTrackMapper:
         if cvt_gray2bgr:
             img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
         return img
-
-
-def generate_pointcloud(added_params: dict={}, show_o3d=False):
-    """Generate a point cloud with a ground plane and a cylinder object."""
-    import open3d as o3d
-
-    # Define default parameters and update the given parameters.
-    # Note) The ground coordinate system is same with the robot coordinate system.
-    params = {
-        'plane_x_range'     : (0, 5, 0.1),  # [m]
-        'plane_y_range'     : (-5, 5, 0.1), # [m]
-        'cyliner_radius'    : 0.5,          # [m]
-        'cyliner_height'    : 2.0,          # [m]
-        'cyliner_position'  : [3, 2, 0],    # [m]
-        'cyliner_n_pts'     : 1000,
-        'ground_tilt_angle' : 0,            # [deg] (0: horizontal, -30: uphill 30 degrees)
-        'ground2sensor_T'   : np.array([[ 0,  0, 1, 0],
-                                        [-1,  0, 0, 0],
-                                        [ 0, -1, 0, 1],
-                                        [ 0,  0, 0, 1]]),
-    }
-    params.update(added_params)
-
-    # Generate a plane.
-    ground_x, ground_y = np.meshgrid(np.arange(*params['plane_x_range']), np.arange(*params['plane_y_range']))
-    ground_z = np.zeros_like(ground_x)
-    ground_pts = np.vstack((ground_x.flatten(), ground_y.flatten(), ground_z.flatten())).T
-    ground_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(ground_pts))
-    ground_pcd.paint_uniform_color([0, 1, 0])
-    all_pcd = ground_pcd
-
-    # Generate an cylinderical object.
-    if params['cyliner_radius'] > 0 and params['cyliner_height'] > 0:
-        object_mesh = o3d.geometry.TriangleMesh.create_cylinder(radius=params['cyliner_radius'], height=params['cyliner_height'])
-        object_mesh.paint_uniform_color([1, 0, 0])
-        object_mesh.translate(params['cyliner_position'] + np.array([0, 0, params['cyliner_height']/2]))
-        object_pcd = object_mesh.sample_points_uniformly(number_of_points=params['cyliner_n_pts'])
-        all_pcd += object_pcd
-
-    # Apply the ground rotation.
-    all_pts = np.asarray(all_pcd.points)
-    rot_angle = np.deg2rad([0, params['ground_tilt_angle'], 0])
-    R = o3d.geometry.get_rotation_matrix_from_zyx(rot_angle)
-    all_pts = all_pts @ R.T # Same with `(all_pts.T = R @ all_pts.T).T`
-
-    # Observe points in the senosr coordinate system.
-    Rt = np.linalg.inv(params['ground2sensor_T'])
-    all_pts = all_pts @ Rt[:3, :3].T + Rt[:3, -1]
-    all_pcd.points = o3d.utility.Vector3dVector(all_pts)
-
-    # Visualize the point clouds if necessary.
-    if show_o3d:
-        geometries = [
-            {'name': 'ground pcd',  'geometry': ground_pcd,  'is_visible': False},
-            {'name': 'object mesh', 'geometry': object_mesh, 'is_visible': False},
-            {'name': 'object pcd',  'geometry': object_pcd,  'is_visible': False},
-            {'name': 'point cloud', 'geometry': all_pcd},
-        ]
-        o3d.visualization.draw(geometries, show_skybox=False, show_ui=True)
-
-    return all_pts
-
-
-def print_debug_info(debug_info: dict, num_all_pts: int):
-    if 'valid_pts' in debug_info and 'ground_mask' in debug_info:
-        num_valid_pts = len(debug_info['valid_pts'])
-        num_ground_pts = sum(debug_info['ground_mask'])
-        print(f'* The number of valid  points: {num_valid_pts} / {num_all_pts} ({num_valid_pts/num_all_pts*100:.0f}%)')
-        print(f'* The number of ground points: {num_ground_pts} / {num_valid_pts} ({num_ground_pts/num_valid_pts*100:.0f}%)')
-    if 'ground_plane' in debug_info:
-        print(f'* Ground plane: {debug_info["ground_plane"]}')
-    if 'ransac_num_iters' in debug_info:
-        print(f'* The number of RANSAC iterations: {debug_info["ransac_num_iters"]}')
-
-
-def test_pointcloud(mapper: GTrackMapper, pts: np.array, added_params: dict={}, show_map=True, show_debug_info=True):
-    """Test the given local mapper with the given point cloud."""
-    import time
-
-    # Define the default parameters and update the given parameters.
-    params = {
-        'viz_color_object'  : (1, 0, 0), # Red
-        'viz_color_ground'  : (0, 1, 0), # Green
-    }
-    params.update(added_params)
-
-    # Apply the given point cloud (build the local map).
-    time_start = time.time()
-    success = mapper.apply_pointcloud(pts)
-    time_elapse = time.time() - time_start
-    print(f'* Computing time: {time_elapse * 1000} [msec] (success: {success})')
-
-    # Show the local map data.
-    if show_map:
-        mapper.imshow_map_pyplot(mapper.map_data['obstacles'], 'Obstacles')
-        mapper.imshow_map_pyplot(mapper.map_data['elevation'], 'Elavation')
-        mapper.imshow_map_pyplot(mapper.map_data['histogram'], 'Histogram')
-        plt.show()
-
-    # Show the debug information.
-    if show_debug_info:
-        print_debug_info(mapper.debug_info, len(pts))
-
-        if 'valid_pts' in mapper.debug_info and 'object_pts' in mapper.debug_info and 'ground_pts' in mapper.debug_info:
-            import open3d as o3d
-            valid_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(mapper.debug_info['valid_pts']))
-            valid_pcd.paint_uniform_color([0.5, 0.5, 0.5])
-            object_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(mapper.debug_info['object_pts']))
-            object_pcd.paint_uniform_color(params['viz_color_object'])
-            ground_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(mapper.debug_info['ground_pts']))
-            ground_pcd.paint_uniform_color(params['viz_color_ground'])
-            geometries = [{'name': 'valid',    'geometry': valid_pcd,   'is_visible': False},
-                          {'name': 'object',   'geometry': object_pcd},
-                          {'name': 'ground',   'geometry': ground_pcd},
-            ]
-            o3d.visualization.draw(geometries, show_skybox=False, show_ui=True)
-
-
-def create_mapper(mapper_name: str, params: dict=None) -> GTrackMapper:
-    """Create a local mapper instance."""
-    map_x_length = 10
-    map_y_length = 10
-    map_cellsize = 0.1
-    if 'map_x_length' in params:
-        map_x_length = params['map_x_length']
-    if 'map_y_length' in params:
-        map_y_length = params['map_y_length']
-    if 'map_cellsize' in params:
-        map_cellsize = params['map_cellsize']
-
-    if mapper_name.lower() == 'o3dmapper' or mapper_name.lower() == 'o3d_mapper':
-        from o3d_mapper import O3DMapper
-        return O3DMapper(map_x_length, map_y_length, map_cellsize)
-    elif mapper_name.lower() == 'gconstkmapper' or mapper_name.lower() == 'gconst_mapper':
-        from gconst_mapper import GConstMapper
-        return GConstMapper(map_x_length, map_y_length, map_cellsize)
-    elif mapper_name.lower() == 'gmsackmapper' or mapper_name.lower() == 'gmsac_mapper':
-        from gmsac_mapper import GMSACMapper
-        return GMSACMapper(map_x_length, map_y_length, map_cellsize)
-    elif mapper_name.lower() == 'gtrackmapper' or mapper_name.lower() == 'gtrack_mapper':
-        return GTrackMapper(map_x_length, map_y_length, map_cellsize)
-
-
-if __name__ == '__main__':
-    # Read a point cloud from a file.
-    import open3d as o3d
-    # pcd_file = '../data/231031_HYU_Yang/zed_17-01-03.ply'
-    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38.ply'
-    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_336.ply'
-    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_460.ply'
-    pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_476.ply'
-    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_478.ply'
-    # pcd_file = '../data/231031_HYU_Yang/zed_17-21-38_565.ply'
-    pcd = o3d.io.read_point_cloud(pcd_file)
-    pts = np.asarray(pcd.points)
-
-    # Generate a point cloud synthetically.
-    # pts_params = {
-    #     'cyliner_height'   : 0.5, # [m]
-    #     'ground_tilt_angle': -10, # [deg]
-    #     'ground2sensor_T'  : np.array([[ 0,  0, 1, -1],
-    #                                    [-1,  0, 0,  0],
-    #                                    [ 0, -1, 0,  1],
-    #                                    [ 0,  0, 0,  1]])}
-    # pts = generate_pointcloud(pts_params, show_o3d=False)
-
-    # Test the local mapper.
-    mapper = GTrackMapper()
-    mapper.set_params({
-        'pts_sampling_step' : 4,
-        'debug_info'        : False,
-    })
-    test_pointcloud(mapper, pts, show_map=True, show_debug_info=mapper.params['debug_info'])
